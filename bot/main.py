@@ -8,7 +8,10 @@ from aiogram.enums import ParseMode
 
 from bot.config import settings
 from bot.database import init_db
+from bot.database.session import async_session_factory
 from bot.handlers import main_router
+from bot.middlewares import DbSessionMiddleware
+from bot.services.text_service import seed_default_texts
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,6 +24,9 @@ logger = logging.getLogger(__name__)
 async def on_startup(bot: Bot) -> None:
     logger.info("Running database initialization...")
     await init_db()
+    logger.info("Seeding default bot texts...")
+    async with async_session_factory() as session:
+        await seed_default_texts(session)
     logger.info("Bot started.")
 
 
@@ -36,6 +42,7 @@ async def main() -> None:
     )
 
     dp = Dispatcher()
+    dp.update.middleware(DbSessionMiddleware())
     dp.include_router(main_router)
 
     dp.startup.register(on_startup)

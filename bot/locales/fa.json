@@ -1,4 +1,28 @@
 {
-  "start": "سلام {name}! 👋\nبه ربات خوش آمدید.",
-  "error": "خطایی رخ داد. لطفاً دوباره تلاش کنید."
+  "message_welcome": "سلام {name}! 👋\nخوش آمدید.",
+  "message_choose_language": "🌐 لطفاً زبان خود را انتخاب کنید:",
+  "message_language_changed": "✅ زبان با موفقیت تغییر کرد.",
+  "message_main_menu": "📋 منوی اصلی\nیک گزینه را انتخاب کنید:",
+  "message_profile": "👤 <b>حساب کاربری</b>\n\n🆔 آیدی: <code>{telegram_id}</code>\n👤 نام: {first_name}\n🌐 زبان: {language}\n📅 عضویت: {created_at}",
+  "message_settings": "⚙️ <b>تنظیمات</b>\n\nدر حال حاضر تنظیمات خاصی موجود نیست.",
+  "message_my_files_empty": "📁 شما هنوز هیچ فایلی ذخیره نکرده‌اید.",
+  "message_support": "📞 <b>پشتیبانی</b>\n\nبرای ارتباط با پشتیبانی از طریق ادمین ربات اقدام کنید.",
+  "message_admin_panel": "👑 <b>پنل مدیریت</b>\n\nیک بخش را انتخاب کنید:",
+  "message_save_file_coming_soon": "📤 در فاز بعدی، سیستم ذخیره فایل فعال می‌شود.",
+  "error_generic": "❌ خطایی رخ داد. لطفاً دوباره تلاش کنید.",
+
+  "btn_save_file": "📤 ذخیره فایل",
+  "btn_my_files": "📁 فایل‌های من",
+  "btn_profile": "👤 حساب کاربری",
+  "btn_settings": "⚙️ تنظیمات",
+  "btn_change_language": "🌐 تغییر زبان",
+  "btn_support": "📞 پشتیبانی",
+  "btn_admin_panel": "👑 پنل مدیریت",
+  "btn_lang_fa": "🇮🇷 فارسی",
+  "btn_lang_en": "🇬🇧 English",
+  "btn_back": "🔙 بازگشت",
+
+  "admin_btn_stats": "📊 آمار ربات",
+  "admin_btn_manage_texts": "✏️ مدیریت متن‌ها",
+  "admin_btn_back": "🔙 بازگشت"
 }

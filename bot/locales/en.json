@@ -1,4 +1,28 @@
 {
-  "start": "Hello {name}! 👋\nWelcome to the bot.",
-  "error": "An error occurred. Please try again."
+  "message_welcome": "Hello {name}! 👋\nWelcome to the bot.",
+  "message_choose_language": "🌐 Please choose your language:",
+  "message_language_changed": "✅ Language changed successfully.",
+  "message_main_menu": "📋 Main Menu\nChoose an option:",
+  "message_profile": "👤 <b>Profile</b>\n\n🆔 ID: <code>{telegram_id}</code>\n👤 Name: {first_name}\n🌐 Language: {language}\n📅 Joined: {created_at}",
+  "message_settings": "⚙️ <b>Settings</b>\n\nNo settings available at the moment.",
+  "message_my_files_empty": "📁 You haven't saved any files yet.",
+  "message_support": "📞 <b>Support</b>\n\nPlease contact the bot admin for support.",
+  "message_admin_panel": "👑 <b>Admin Panel</b>\n\nChoose a section:",
+  "message_save_file_coming_soon": "📤 File saving will be implemented in the next phase.",
+  "error_generic": "❌ An error occurred. Please try again.",
+
+  "btn_save_file": "📤 Save File",
+  "btn_my_files": "📁 My Files",
+  "btn_profile": "👤 Profile",
+  "btn_settings": "⚙️ Settings",
+  "btn_change_language": "🌐 Change Language",
+  "btn_support": "📞 Support",
+  "btn_admin_panel": "👑 Admin Panel",
+  "btn_lang_fa": "🇮🇷 فارسی",
+  "btn_lang_en": "🇬🇧 English",
+  "btn_back": "🔙 Back",
+
+  "admin_btn_stats": "📊 Bot Statistics",
+  "admin_btn_manage_texts": "✏️ Manage Texts",
+  "admin_btn_back": "🔙 Back"
 }
