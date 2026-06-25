@@ -11,6 +11,16 @@
   "message_save_file_coming_soon": "📤 در فاز بعدی، سیستم ذخیره فایل فعال می‌شود.",
   "error_generic": "❌ خطایی رخ داد. لطفاً دوباره تلاش کنید.",
 
+  "message_send_file_to_save": "📤 فایل، عکس، فیلم، متن یا هر داده‌ای که می‌خواهید ذخیره شود را ارسال کنید.",
+  "message_unsupported_file_type": "❌ این نوع پیام هنوز پشتیبانی نمی‌شود.",
+  "message_file_saved_success": "✅ فایل شما با موفقیت ذخیره شد.",
+  "message_file_link": "🔗 لینک دریافت فایل:\n{link}",
+  "message_file_not_found": "❌ فایل مورد نظر پیدا نشد.",
+  "message_file_deleted": "🗑 این فایل حذف شده است.",
+  "message_file_expired": "⏳ مهلت دریافت این فایل به پایان رسیده است.",
+  "message_file_sent": "✅ فایل ارسال شد.",
+  "message_save_cancelled": "🔙 عملیات لغو شد.",
+
   "btn_save_file": "📤 ذخیره فایل",
   "btn_my_files": "📁 فایل‌های من",
   "btn_profile": "👤 حساب کاربری",
@@ -21,6 +31,7 @@
   "btn_lang_fa": "🇮🇷 فارسی",
   "btn_lang_en": "🇬🇧 English",
   "btn_back": "🔙 بازگشت",
+  "btn_cancel": "❌ لغو",
 
   "admin_btn_stats": "📊 آمار ربات",
   "admin_btn_manage_texts": "✏️ مدیریت متن‌ها",

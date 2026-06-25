@@ -20,13 +20,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Resolved once at startup and injected into FSM handlers via bot.get_me()
+_bot_username: str = ""
+
 
 async def on_startup(bot: Bot) -> None:
+    global _bot_username
+
     logger.info("Running database initialization...")
     await init_db()
+
     logger.info("Seeding default bot texts...")
     async with async_session_factory() as session:
         await seed_default_texts(session)
+
+    # Cache bot username so deep-link generation works even if BOT_USERNAME is unset
+    if not settings.BOT_USERNAME:
+        me = await bot.get_me()
+        _bot_username = me.username or ""
+        logger.info("Resolved bot username: @%s", _bot_username)
+    else:
+        _bot_username = settings.BOT_USERNAME.lstrip("@")
+
     logger.info("Bot started.")
 
 

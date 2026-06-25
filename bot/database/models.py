@@ -15,6 +15,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -51,10 +52,15 @@ class StoredFile(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True, default=lambda: uuid.uuid4().hex[:12])
     owner_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    telegram_file_id: Mapped[str] = mapped_column(String(512), nullable=False)
-    telegram_file_unique_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    file_type: Mapped[str] = mapped_column(String(50), nullable=False)  # photo, video, document, audio, voice, etc.
+    telegram_file_id: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    telegram_file_unique_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True, default="")
+    file_type: Mapped[str] = mapped_column(String(50), nullable=False)  # photo, video, document, audio, voice, animation, sticker, text, contact, location
     caption: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    text_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    original_file_name: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    file_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    mime_type: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     views_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     likes_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -15,8 +15,10 @@ _MENU_BTN_KEYS = [
     "btn_settings", "btn_change_language", "btn_support", "btn_admin_panel",
 ]
 
+# save_file is handled by upload router; change_language by language router;
+# admin_panel by admin router — only these remain here.
 _ACTION_KEYS = [
-    "btn_save_file", "btn_my_files", "btn_profile",
+    "btn_my_files", "btn_profile",
     "btn_settings", "btn_support",
 ]
 
@@ -50,11 +52,7 @@ async def handle_menu_button(message: Message, session: AsyncSession) -> None:
     if matched_key is None:
         return
 
-    if matched_key == "btn_save_file":
-        text = await get_text(session, "message_save_file_coming_soon", lang)
-        await message.answer(text)
-
-    elif matched_key == "btn_my_files":
+    if matched_key == "btn_my_files":
         text = await get_text(session, "message_my_files_empty", lang)
         await message.answer(text)
 

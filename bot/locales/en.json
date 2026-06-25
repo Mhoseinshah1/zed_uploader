@@ -11,6 +11,16 @@
   "message_save_file_coming_soon": "📤 File saving will be implemented in the next phase.",
   "error_generic": "❌ An error occurred. Please try again.",
 
+  "message_send_file_to_save": "📤 Send the file, photo, video, text, or any content you want to save.",
+  "message_unsupported_file_type": "❌ This message type is not supported yet.",
+  "message_file_saved_success": "✅ Your file was saved successfully.",
+  "message_file_link": "🔗 File retrieval link:\n{link}",
+  "message_file_not_found": "❌ File not found.",
+  "message_file_deleted": "🗑 This file has been deleted.",
+  "message_file_expired": "⏳ This file link has expired.",
+  "message_file_sent": "✅ File sent.",
+  "message_save_cancelled": "🔙 Operation cancelled.",
+
   "btn_save_file": "📤 Save File",
   "btn_my_files": "📁 My Files",
   "btn_profile": "👤 Profile",
@@ -21,6 +31,7 @@
   "btn_lang_fa": "🇮🇷 فارسی",
   "btn_lang_en": "🇬🇧 English",
   "btn_back": "🔙 Back",
+  "btn_cancel": "❌ Cancel",
 
   "admin_btn_stats": "📊 Bot Statistics",
   "admin_btn_manage_texts": "✏️ Manage Texts",
