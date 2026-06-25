@@ -29,10 +29,10 @@ success "Code updated."
 cd "$INSTALL_DIR"
 
 header "Rebuilding containers"
-docker compose build --pull
+$SUDO docker compose build --pull
 
 header "Restarting services"
-docker compose up -d --remove-orphans
+$SUDO docker compose up -d --remove-orphans
 success "Services restarted."
 
 echo ""
@@ -40,4 +40,4 @@ echo -e "${BOLD}${GREEN}╔═════════════════�
 echo -e "${BOLD}${GREEN}║        ✅  Update complete!                          ║${RESET}"
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════╝${RESET}"
 echo ""
-docker compose ps
+$SUDO docker compose ps

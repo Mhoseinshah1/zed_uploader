@@ -140,7 +140,7 @@ if [[ "$RECONFIGURE" == true ]]; then
 
     # ── Auto-generate secrets ─────────────────────────────────────────────────
     POSTGRES_USER="zed_$(openssl rand -hex 4)"
-    POSTGRES_PASSWORD="$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 40)"
+    POSTGRES_PASSWORD="$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 40)"
     POSTGRES_DB="zed_uploader"
     DATABASE_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
     REDIS_URL="redis://redis:6379/0"
@@ -173,14 +173,14 @@ fi
 
 # ── 6. Build and start containers ─────────────────────────────────────────────
 header "Building Docker images"
-docker compose build --pull
+$SUDO docker compose build --pull
 
 header "Starting services"
 # Start postgres and redis first so the healthcheck passes before bot starts
-docker compose up -d postgres redis
+$SUDO docker compose up -d postgres redis
 info "Waiting for postgres to be healthy..."
 WAIT=0
-until docker compose exec -T postgres pg_isready -U "$(grep POSTGRES_USER "$INSTALL_DIR/.env" | cut -d= -f2)" &>/dev/null; do
+until $SUDO docker compose exec -T postgres pg_isready -U "$(grep "^POSTGRES_USER=" "$INSTALL_DIR/.env" | cut -d= -f2)" &>/dev/null; do
     sleep 2
     WAIT=$((WAIT+2))
     if [[ $WAIT -ge 60 ]]; then
@@ -190,18 +190,18 @@ done
 success "Postgres is healthy."
 
 # Start the bot (docker-compose.yml already runs 'alembic upgrade head && python -m bot.main')
-docker compose up -d bot
+$SUDO docker compose up -d bot
 success "All containers started."
 
 # ── 7. Verify bot is running ───────────────────────────────────────────────────
 header "Verifying deployment"
 sleep 5
-BOT_STATUS=$(docker compose ps --format '{{.Name}} {{.Status}}' 2>/dev/null | grep bot || echo "unknown")
+BOT_STATUS=$($SUDO docker compose ps --format '{{.Name}} {{.Status}}' 2>/dev/null | grep bot || echo "unknown")
 if echo "$BOT_STATUS" | grep -qi "up"; then
     success "Bot container is running."
 else
     warn "Bot container may not be running. Check logs:"
-    docker compose logs --tail=30 bot || true
+    $SUDO docker compose logs --tail=30 bot || true
 fi
 
 # ── 8. Summary ────────────────────────────────────────────────────────────────
@@ -213,7 +213,7 @@ echo ""
 echo -e "  ${BOLD}Project path:${RESET}  $INSTALL_DIR"
 echo -e "  ${BOLD}Branch:${RESET}        $BRANCH"
 echo ""
-docker compose ps
+$SUDO docker compose ps
 echo ""
 echo -e "${BOLD}Useful commands:${RESET}"
 echo -e "  ${CYAN}cd $INSTALL_DIR${RESET}"
