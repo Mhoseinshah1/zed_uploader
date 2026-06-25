@@ -40,6 +40,8 @@ def admin_panel_keyboard(btn: dict[str, str]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=btn["admin_btn_stats"], callback_data="admin:stats")
     builder.button(text=btn["admin_btn_manage_texts"], callback_data="admin:texts")
+    builder.button(text=btn["admin_btn_settings"], callback_data="admin:settings")
+    builder.button(text=btn["admin_btn_files"], callback_data="admin:files")
     builder.button(text=btn["admin_btn_back"], callback_data="admin:back")
     builder.adjust(1)
     return builder.as_markup()

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import secrets
 import string
+from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings
@@ -24,6 +25,18 @@ def build_deep_link(code: str, bot_username: str) -> str:
     return f"https://t.me/{bot_username}?start={code}"
 
 
+def is_file_expired(stored: StoredFile) -> bool:
+    """Check expiry by flag OR by computing from expires_at."""
+    if stored.is_expired:
+        return True
+    if stored.expires_at:
+        exp = stored.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return datetime.now(tz=timezone.utc) > exp
+    return False
+
+
 async def create_stored_file(
     session: AsyncSession,
     owner: User,
@@ -36,8 +49,9 @@ async def create_stored_file(
     original_file_name: Optional[str] = None,
     file_size: Optional[int] = None,
     mime_type: Optional[str] = None,
+    expires_at: Optional[datetime] = None,
+    auto_delete_seconds: Optional[int] = None,
 ) -> StoredFile:
-    # Guarantee uniqueness: retry on the rare collision
     for _ in range(5):
         code = generate_unique_code()
         existing = await session.execute(
@@ -60,6 +74,8 @@ async def create_stored_file(
         original_file_name=original_file_name,
         file_size=file_size,
         mime_type=mime_type,
+        expires_at=expires_at,
+        auto_delete_seconds=auto_delete_seconds,
     )
     session.add(stored)
     await session.commit()
@@ -74,6 +90,45 @@ async def get_file_by_code(session: AsyncSession, code: str) -> Optional[StoredF
     return result.scalar_one_or_none()
 
 
+async def get_file_by_id(session: AsyncSession, file_id: int) -> Optional[StoredFile]:
+    result = await session.execute(
+        select(StoredFile).where(StoredFile.id == file_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_user_files(
+    session: AsyncSession,
+    owner_id: int,
+    include_deleted: bool = False,
+    limit: int = 5,
+    offset: int = 0,
+) -> tuple[list[StoredFile], int]:
+    q = select(StoredFile).where(StoredFile.owner_id == owner_id)
+    if not include_deleted:
+        q = q.where(StoredFile.is_deleted == False)  # noqa: E712
+    total_q = select(func.count()).select_from(q.subquery())
+    total = (await session.execute(total_q)).scalar_one()
+    files_result = await session.execute(
+        q.order_by(StoredFile.created_at.desc()).limit(limit).offset(offset)
+    )
+    return list(files_result.scalars().all()), total
+
+
+async def get_all_files(
+    session: AsyncSession,
+    limit: int = 5,
+    offset: int = 0,
+) -> tuple[list[StoredFile], int]:
+    q = select(StoredFile)
+    total_q = select(func.count()).select_from(q.subquery())
+    total = (await session.execute(total_q)).scalar_one()
+    files_result = await session.execute(
+        q.order_by(StoredFile.created_at.desc()).limit(limit).offset(offset)
+    )
+    return list(files_result.scalars().all()), total
+
+
 async def increment_view_count(session: AsyncSession, stored: StoredFile) -> None:
     await session.execute(
         update(StoredFile)
@@ -81,6 +136,18 @@ async def increment_view_count(session: AsyncSession, stored: StoredFile) -> Non
         .values(views_count=StoredFile.views_count + 1)
     )
     await session.commit()
+
+
+async def soft_delete_file(session: AsyncSession, stored: StoredFile) -> None:
+    stored.is_deleted = True
+    await session.commit()
+
+
+async def toggle_file_active(session: AsyncSession, stored: StoredFile) -> bool:
+    """Toggle is_deleted. Returns new is_deleted state."""
+    stored.is_deleted = not stored.is_deleted
+    await session.commit()
+    return stored.is_deleted
 
 
 def get_bot_username(bot_username_override: str = "") -> str:
