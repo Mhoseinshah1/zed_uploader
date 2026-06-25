@@ -8,9 +8,11 @@ from aiogram.types import (
     Audio,
     Contact,
     Document,
+    KeyboardButton,
     Location,
     Message,
     PhotoSize,
+    ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     Sticker,
     Video,
@@ -22,7 +24,6 @@ from bot.keyboards.main_menu import main_menu_keyboard
 from bot.services.file_service import (
     build_deep_link,
     create_stored_file,
-    get_bot_username,
 )
 from bot.services.text_service import get_text, get_texts
 from bot.services.user_service import get_or_create_user
@@ -34,6 +35,9 @@ _MENU_BTN_KEYS = [
     "btn_save_file", "btn_my_files", "btn_profile",
     "btn_settings", "btn_change_language", "btn_support", "btn_admin_panel",
 ]
+
+# Key used to cache bot username in bot.data dict (set at startup)
+BOT_USERNAME_KEY = "bot_username"
 
 
 # ── Filter: matches save-file button text ──────────────────────────────────────
@@ -51,7 +55,7 @@ class SaveFileButtonFilter(Filter):
         return {"db_user": user}
 
 
-# ── Cancel filter: matches cancel/back button while in FSM state ───────────────
+# ── Cancel filter: matches cancel/back button ──────────────────────────────────
 
 class CancelFilter(Filter):
     async def __call__(self, message: Message, session: AsyncSession) -> bool:
@@ -77,7 +81,6 @@ async def start_save_flow(
     prompt = await get_text(session, "message_send_file_to_save", lang)
     cancel_btn = await get_text(session, "btn_cancel", lang)
 
-    from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
     cancel_kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=cancel_btn)]],
         resize_keyboard=True,
@@ -111,25 +114,32 @@ async def cancel_save(message: Message, session: AsyncSession, state: FSMContext
 async def receive_file(message: Message, session: AsyncSession, state: FSMContext, bot: Bot) -> None:
     data = await state.get_data()
     lang = data.get("lang", "fa")
-    await state.clear()
 
     tg = message.from_user
     user, _ = await get_or_create_user(session, tg.id, tg.username, tg.first_name or "")
 
-    # Resolve bot username (needed for deep link)
-    bot_username = get_bot_username()
+    stored = await _extract_and_store(message, session, user, lang)
+
+    # Always clear FSM state and restore menu, regardless of success or unsupported type
+    await state.clear()
+
+    if stored is None:
+        # Unsupported type: message already sent inside _extract_and_store;
+        # restore the main menu keyboard so the user isn't left without navigation.
+        btn = await get_texts(session, _MENU_BTN_KEYS, lang)
+        menu_text = await get_text(session, "message_main_menu", lang)
+        await message.answer(menu_text, reply_markup=main_menu_keyboard(btn, user))
+        return
+
+    # Resolve bot username from bot.data cache set at startup
+    bot_username: str = bot.data.get(BOT_USERNAME_KEY, "")
     if not bot_username:
         me = await bot.get_me()
         bot_username = me.username or ""
 
-    stored = await _extract_and_store(message, session, user, lang)
-    if stored is None:
-        return  # unsupported type message already sent
-
     link = build_deep_link(stored.code, bot_username)
     success_text = await get_text(session, "message_file_saved_success", lang)
     link_text = await get_text(session, "message_file_link", lang, link=link)
-
     btn = await get_texts(session, _MENU_BTN_KEYS, lang)
     menu_text = await get_text(session, "message_main_menu", lang)
 
@@ -144,7 +154,25 @@ async def _extract_and_store(
     user,
     lang: str,
 ):
-    """Extract metadata from message and persist to StoredFile. Returns None on unsupported type."""
+    """Extract metadata from message and persist to StoredFile. Returns None on unsupported type.
+
+    NOTE: animation MUST be checked before document — Telegram sets both fields
+    on GIF messages, and the more specific type (animation) takes priority.
+    """
+
+    # ── animation (GIF) — must come before document ────────────────────────────
+    if message.animation:
+        an: Animation = message.animation
+        return await create_stored_file(
+            session, user,
+            file_type="animation",
+            telegram_file_id=an.file_id,
+            telegram_file_unique_id=an.file_unique_id,
+            caption=message.caption,
+            original_file_name=an.file_name,
+            file_size=an.file_size,
+            mime_type=an.mime_type,
+        )
 
     # ── photo ──────────────────────────────────────────────────────────────────
     if message.photo:
@@ -210,20 +238,6 @@ async def _extract_and_store(
             telegram_file_unique_id=vo.file_unique_id,
             file_size=vo.file_size,
             mime_type=vo.mime_type,
-        )
-
-    # ── animation (GIF) ────────────────────────────────────────────────────────
-    if message.animation:
-        an: Animation = message.animation
-        return await create_stored_file(
-            session, user,
-            file_type="animation",
-            telegram_file_id=an.file_id,
-            telegram_file_unique_id=an.file_unique_id,
-            caption=message.caption,
-            original_file_name=an.file_name,
-            file_size=an.file_size,
-            mime_type=an.mime_type,
         )
 
     # ── sticker ────────────────────────────────────────────────────────────────
