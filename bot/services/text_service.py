@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import BotText
@@ -78,12 +79,18 @@ async def get_texts(
 
 
 async def seed_default_texts(session: AsyncSession) -> None:
+    rows = []
     for lang in ("fa", "en"):
-        locale = _load_locale(lang)
-        for key, value in locale.items():
-            existing = await session.execute(
-                select(BotText).where(BotText.key == key, BotText.language == lang)
-            )
-            if existing.scalar_one_or_none() is None:
-                session.add(BotText(key=key, language=lang, value=value))
+        for key, value in _load_locale(lang).items():
+            rows.append({"key": key, "language": lang, "value": value})
+
+    if not rows:
+        return
+
+    stmt = (
+        pg_insert(BotText)
+        .values(rows)
+        .on_conflict_do_nothing(constraint="uq_bot_texts_key_language")
+    )
+    await session.execute(stmt)
     await session.commit()

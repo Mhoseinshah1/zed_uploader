@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -91,6 +92,7 @@ class RequiredChannel(Base):
 
 class BotText(Base):
     __tablename__ = "bot_texts"
+    __table_args__ = (UniqueConstraint("key", "language", name="uq_bot_texts_key_language"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
