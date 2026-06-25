@@ -1,0 +1,1051 @@
+From 6cf6d067b780b134428b93c86728a69897f1d50a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 25 Jun 2026 13:06:35 +0000
+Subject: [PATCH] feat: initial project scaffold for zed_uploader bot
+
+Sets up the full foundation: aiogram 3 skeleton with long polling,
+async SQLAlchemy models (User, StoredFile, RequiredChannel, BotText,
+BotSetting, FileView, FileReport, Broadcast), Alembic migration 0001,
+pydantic-settings config, Docker Compose with postgres+redis health
+checks, and .env.example. No file upload logic implemented yet.
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01KzHBniPfkuUQAkhnfkZ8G1
+---
+ .env.example                            |  16 +++
+ .gitignore                              |  41 ++++++
+ Dockerfile                              |  19 +++
+ README.md                               | 132 ++++++++++++++++++
+ alembic.ini                             |  41 ++++++
+ alembic/env.py                          |  61 +++++++++
+ alembic/script.py.mako                  |  25 ++++
+ alembic/versions/0001_initial_schema.py | 149 +++++++++++++++++++++
+ bot/config.py                           |  38 ++++++
+ bot/database/__init__.py                |  17 +++
+ bot/database/models.py                  | 170 ++++++++++++++++++++++++
+ bot/database/session.py                 |  23 ++++
+ bot/handlers/__init__.py                |   8 ++
+ bot/handlers/start.py                   |  14 ++
+ bot/keyboards/__init__.py               |   0
+ bot/locales/en.json                     |   4 +
+ bot/locales/fa.json                     |   4 +
+ bot/main.py                             |  49 +++++++
+ bot/middlewares/__init__.py             |   0
+ bot/services/__init__.py                |   0
+ docker-compose.yml                      |  46 +++++++
+ requirements.txt                        |   8 ++
+ 22 files changed, 865 insertions(+)
+ create mode 100644 .env.example
+ create mode 100644 .gitignore
+ create mode 100644 Dockerfile
+ create mode 100644 README.md
+ create mode 100644 alembic.ini
+ create mode 100644 alembic/env.py
+ create mode 100644 alembic/script.py.mako
+ create mode 100644 alembic/versions/0001_initial_schema.py
+ create mode 100644 bot/config.py
+ create mode 100644 bot/database/__init__.py
+ create mode 100644 bot/database/models.py
+ create mode 100644 bot/database/session.py
+ create mode 100644 bot/handlers/__init__.py
+ create mode 100644 bot/handlers/start.py
+ create mode 100644 bot/keyboards/__init__.py
+ create mode 100644 bot/locales/en.json
+ create mode 100644 bot/locales/fa.json
+ create mode 100644 bot/main.py
+ create mode 100644 bot/middlewares/__init__.py
+ create mode 100644 bot/services/__init__.py
+ create mode 100644 docker-compose.yml
+ create mode 100644 requirements.txt
+
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..87a1ea8
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,16 @@
++# Telegram Bot
++BOT_TOKEN=your_bot_token_here
++BOT_USERNAME=your_bot_username
++ADMIN_IDS=[123456789]
++
++# Database
++DATABASE_URL=postgresql+asyncpg://zed:zedpass@postgres:5432/zed_uploader
++POSTGRES_USER=zed
++POSTGRES_PASSWORD=zedpass
++POSTGRES_DB=zed_uploader
++
++# Redis
++REDIS_URL=redis://redis:6379/0
++
++# Bot Settings
++DEFAULT_LANGUAGE=fa
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..c0404d8
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,41 @@
++# Python
++__pycache__/
++*.py[cod]
++*.pyo
++*.pyd
++.Python
++*.egg
++*.egg-info/
++dist/
++build/
++.eggs/
++.venv/
++venv/
++env/
++
++# Environment
++.env
++.env.local
++.env.*.local
++
++# IDE
++.idea/
++.vscode/
++*.swp
++*.swo
++
++# Docker volumes (if mapped locally)
++postgres_data/
++redis_data/
++
++# Alembic
++# Keep versions tracked, but ignore pyc inside
++alembic/versions/__pycache__/
++
++# Logs
++*.log
++logs/
++
++# OS
++.DS_Store
++Thumbs.db
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..a3962cf
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,19 @@
++FROM python:3.11-slim
++
++WORKDIR /app
++
++ENV PYTHONDONTWRITEBYTECODE=1 \
++    PYTHONUNBUFFERED=1 \
++    PYTHONPATH=/app
++
++RUN apt-get update && apt-get install -y --no-install-recommends \
++    gcc \
++    libpq-dev \
++    && rm -rf /var/lib/apt/lists/*
++
++COPY requirements.txt .
++RUN pip install --no-cache-dir -r requirements.txt
++
++COPY . .
++
++CMD ["python", "-m", "bot.main"]
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..77760a3
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,132 @@
++# zed_uploader
++
++A production-ready Telegram file saver/uploader bot built with Python 3.11+, aiogram 3, PostgreSQL, and Redis.
++
++> **Important:** Uploaded files are **never stored on the server**. Only Telegram `file_id` and metadata are saved in the database. Telegram itself stores the actual file content.
++
++---
++
++## Tech Stack
++
++- Python 3.11+
++- [aiogram 3](https://docs.aiogram.dev/) — async Telegram Bot API framework
++- PostgreSQL 16 — primary database
++- async SQLAlchemy 2 + asyncpg — async ORM
++- Alembic — database migrations
++- Redis 7 — caching and state management
++- Docker + Docker Compose
++
++---
++
++## Environment Variables
++
++Copy `.env.example` to `.env` and fill in the values:
++
++| Variable | Description | Example |
++|---|---|---|
++| `BOT_TOKEN` | Telegram bot token from @BotFather | `123456:ABC-DEF...` |
++| `BOT_USERNAME` | Bot username without @ | `mybot` |
++| `ADMIN_IDS` | JSON array of admin Telegram user IDs | `[123456789]` |
++| `DATABASE_URL` | Async PostgreSQL URL | `postgresql+asyncpg://zed:pass@postgres:5432/zed_uploader` |
++| `POSTGRES_USER` | PostgreSQL username | `zed` |
++| `POSTGRES_PASSWORD` | PostgreSQL password | `zedpass` |
++| `POSTGRES_DB` | PostgreSQL database name | `zed_uploader` |
++| `REDIS_URL` | Redis connection URL | `redis://redis:6379/0` |
++| `DEFAULT_LANGUAGE` | Default bot language (`fa` or `en`) | `fa` |
++
++---
++
++## Run with Docker Compose (recommended)
++
++```bash
++# 1. Copy and fill environment variables
++cp .env.example .env
++# Edit .env with your values
++
++# 2. Build and start all services
++docker compose up -d --build
++
++# 3. Check logs
++docker compose logs -f bot
++```
++
++This will:
++- Start PostgreSQL and Redis
++- Wait for them to be healthy
++- Run `alembic upgrade head` to apply migrations
++- Start the bot with long polling
++
++---
++
++## Local Development (without Docker)
++
++```bash
++# 1. Create virtual environment
++python3.11 -m venv .venv
++source .venv/bin/activate
++
++# 2. Install dependencies
++pip install -r requirements.txt
++
++# 3. Copy and fill environment variables
++cp .env.example .env
++# Edit .env — point DATABASE_URL to your local PostgreSQL
++
++# 4. Run migrations
++alembic upgrade head
++
++# 5. Start the bot
++python -m bot.main
++```
++
++---
++
++## Project Structure
++
++```
++bot/
++  main.py           — bot entry point, startup/shutdown hooks
++  config.py         — settings loaded from environment variables
++  database/
++    models.py       — SQLAlchemy ORM models
++    session.py      — async engine and session factory
++  handlers/
++    start.py        — /start command handler
++  keyboards/        — inline and reply keyboards (future)
++  services/         — business logic layer (future)
++  middlewares/      — aiogram middlewares (future)
++  locales/          — fa.json / en.json message strings
++alembic/
++  versions/         — migration files
++  env.py            — async Alembic environment
++docker-compose.yml
++Dockerfile
++requirements.txt
++```
++
++---
++
++## Database Migrations
++
++```bash
++# Apply all pending migrations
++alembic upgrade head
++
++# Create a new migration after changing models
++alembic revision --autogenerate -m "description"
++
++# Rollback one step
++alembic downgrade -1
++```
++
++---
++
++## Upcoming Features
++
++- File upload/download via `file_id` (no server storage)
++- Forced channel join verification
++- Admin panel
++- Broadcast system
++- Per-user language selection
++- File password protection
++- File expiry and auto-deletion
+diff --git a/alembic.ini b/alembic.ini
+new file mode 100644
+index 0000000..4481cf8
+--- /dev/null
++++ b/alembic.ini
+@@ -0,0 +1,41 @@
++[alembic]
++script_location = alembic
++prepend_sys_path = .
++version_path_separator = os
++sqlalchemy.url = driver://user:pass@localhost/dbname
++
++[post_write_hooks]
++
++[loggers]
++keys = root,sqlalchemy,alembic
++
++[handlers]
++keys = console
++
++[formatters]
++keys = generic
++
++[logger_root]
++level = WARN
++handlers = console
++qualname =
++
++[logger_sqlalchemy]
++level = WARN
++handlers =
++qualname = sqlalchemy.engine
++
++[logger_alembic]
++level = INFO
++handlers =
++qualname = alembic
++
++[handler_console]
++class = StreamHandler
++args = (sys.stderr,)
++level = NOTSET
++formatter = generic
++
++[formatter_generic]
++format = %(levelname)-5.5s [%(name)s] %(message)s
++datefmt = %H:%M:%S
+diff --git a/alembic/env.py b/alembic/env.py
+new file mode 100644
+index 0000000..fa2d2fa
+--- /dev/null
++++ b/alembic/env.py
+@@ -0,0 +1,61 @@
++import asyncio
++import os
++from logging.config import fileConfig
++
++from sqlalchemy import pool
++from sqlalchemy.engine import Connection
++from sqlalchemy.ext.asyncio import async_engine_from_config
++
++from alembic import context
++
++config = context.config
++
++if config.config_file_name is not None:
++    fileConfig(config.config_file_name)
++
++from bot.database.models import Base
++
++target_metadata = Base.metadata
++
++DATABASE_URL = os.environ.get("DATABASE_URL", "")
++if DATABASE_URL:
++    config.set_main_option("sqlalchemy.url", DATABASE_URL)
++
++
++def run_migrations_offline() -> None:
++    url = config.get_main_option("sqlalchemy.url")
++    context.configure(
++        url=url,
++        target_metadata=target_metadata,
++        literal_binds=True,
++        dialect_opts={"paramstyle": "named"},
++    )
++    with context.begin_transaction():
++        context.run_migrations()
++
++
++def do_run_migrations(connection: Connection) -> None:
++    context.configure(connection=connection, target_metadata=target_metadata)
++    with context.begin_transaction():
++        context.run_migrations()
++
++
++async def run_async_migrations() -> None:
++    connectable = async_engine_from_config(
++        config.get_section(config.config_ini_section, {}),
++        prefix="sqlalchemy.",
++        poolclass=pool.NullPool,
++    )
++    async with connectable.connect() as connection:
++        await connection.run_sync(do_run_migrations)
++    await connectable.dispose()
++
++
++def run_migrations_online() -> None:
++    asyncio.run(run_async_migrations())
++
++
++if context.is_offline_mode():
++    run_migrations_offline()
++else:
++    run_migrations_online()
+diff --git a/alembic/script.py.mako b/alembic/script.py.mako
+new file mode 100644
+index 0000000..17dcba0
+--- /dev/null
++++ b/alembic/script.py.mako
+@@ -0,0 +1,25 @@
++"""${message}
++
++Revision ID: ${up_revision}
++Revises: ${down_revision | comma,n}
++Create Date: ${create_date}
++
++"""
++from typing import Sequence, Union
++
++from alembic import op
++import sqlalchemy as sa
++${imports if imports else ""}
++
++revision: str = ${repr(up_revision)}
++down_revision: Union[str, None] = ${repr(down_revision)}
++branch_labels: Union[str, Sequence[str], None] = ${repr(branch_labels)}
++depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}
++
++
++def upgrade() -> None:
++    ${upgrades if upgrades else "pass"}
++
++
++def downgrade() -> None:
++    ${downgrades if downgrades else "pass"}
+diff --git a/alembic/versions/0001_initial_schema.py b/alembic/versions/0001_initial_schema.py
+new file mode 100644
+index 0000000..02b23bf
+--- /dev/null
++++ b/alembic/versions/0001_initial_schema.py
+@@ -0,0 +1,149 @@
++"""initial schema
++
++Revision ID: 0001
++Revises:
++Create Date: 2025-01-01 00:00:00.000000
++
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = "0001"
++down_revision: Union[str, None] = None
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    op.create_table(
++        "users",
++        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
++        sa.Column("telegram_id", sa.BigInteger(), nullable=False),
++        sa.Column("username", sa.String(255), nullable=True),
++        sa.Column("first_name", sa.String(255), nullable=False, server_default=""),
++        sa.Column("language", sa.String(10), nullable=False, server_default="fa"),
++        sa.Column("is_admin", sa.Boolean(), nullable=False, server_default=sa.false()),
++        sa.Column("is_blocked", sa.Boolean(), nullable=False, server_default=sa.false()),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.PrimaryKeyConstraint("id"),
++        sa.UniqueConstraint("telegram_id"),
++    )
++    op.create_index("ix_users_telegram_id", "users", ["telegram_id"])
++
++    op.create_table(
++        "stored_files",
++        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
++        sa.Column("code", sa.String(64), nullable=False),
++        sa.Column("owner_id", sa.Integer(), nullable=False),
++        sa.Column("telegram_file_id", sa.String(512), nullable=False),
++        sa.Column("telegram_file_unique_id", sa.String(255), nullable=False),
++        sa.Column("file_type", sa.String(50), nullable=False),
++        sa.Column("caption", sa.Text(), nullable=True),
++        sa.Column("password_hash", sa.String(255), nullable=True),
++        sa.Column("views_count", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("likes_count", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("reports_count", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
++        sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default=sa.false()),
++        sa.Column("is_expired", sa.Boolean(), nullable=False, server_default=sa.false()),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.ForeignKeyConstraint(["owner_id"], ["users.id"], ondelete="CASCADE"),
++        sa.PrimaryKeyConstraint("id"),
++        sa.UniqueConstraint("code"),
++    )
++    op.create_index("ix_stored_files_code", "stored_files", ["code"])
++    op.create_index("ix_stored_files_telegram_file_unique_id", "stored_files", ["telegram_file_unique_id"])
++
++    op.create_table(
++        "required_channels",
++        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
++        sa.Column("title", sa.String(255), nullable=False),
++        sa.Column("chat_id", sa.BigInteger(), nullable=False),
++        sa.Column("invite_link", sa.String(512), nullable=True),
++        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
++        sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.PrimaryKeyConstraint("id"),
++        sa.UniqueConstraint("chat_id"),
++    )
++
++    op.create_table(
++        "bot_texts",
++        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
++        sa.Column("key", sa.String(255), nullable=False),
++        sa.Column("language", sa.String(10), nullable=False, server_default="fa"),
++        sa.Column("value", sa.Text(), nullable=False),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.PrimaryKeyConstraint("id"),
++    )
++    op.create_index("ix_bot_texts_key", "bot_texts", ["key"])
++
++    op.create_table(
++        "bot_settings",
++        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
++        sa.Column("key", sa.String(255), nullable=False),
++        sa.Column("value", sa.Text(), nullable=False),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.PrimaryKeyConstraint("id"),
++        sa.UniqueConstraint("key"),
++    )
++    op.create_index("ix_bot_settings_key", "bot_settings", ["key"])
++
++    op.create_table(
++        "file_views",
++        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
++        sa.Column("file_id", sa.Integer(), nullable=False),
++        sa.Column("user_id", sa.Integer(), nullable=True),
++        sa.Column("viewed_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.ForeignKeyConstraint(["file_id"], ["stored_files.id"], ondelete="CASCADE"),
++        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="SET NULL"),
++        sa.PrimaryKeyConstraint("id"),
++    )
++
++    op.create_table(
++        "file_reports",
++        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
++        sa.Column("file_id", sa.Integer(), nullable=False),
++        sa.Column("user_id", sa.Integer(), nullable=False),
++        sa.Column("reason", sa.String(500), nullable=True),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.ForeignKeyConstraint(["file_id"], ["stored_files.id"], ondelete="CASCADE"),
++        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
++        sa.PrimaryKeyConstraint("id"),
++    )
++
++    op.create_table(
++        "broadcasts",
++        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
++        sa.Column("message_text", sa.Text(), nullable=True),
++        sa.Column("telegram_message_id", sa.Integer(), nullable=True),
++        sa.Column("total_users", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("sent_count", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("failed_count", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("status", sa.String(50), nullable=False, server_default="pending"),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++        sa.PrimaryKeyConstraint("id"),
++    )
++
++
++def downgrade() -> None:
++    op.drop_table("broadcasts")
++    op.drop_table("file_reports")
++    op.drop_table("file_views")
++    op.drop_index("ix_bot_settings_key", table_name="bot_settings")
++    op.drop_table("bot_settings")
++    op.drop_index("ix_bot_texts_key", table_name="bot_texts")
++    op.drop_table("bot_texts")
++    op.drop_table("required_channels")
++    op.drop_index("ix_stored_files_telegram_file_unique_id", table_name="stored_files")
++    op.drop_index("ix_stored_files_code", table_name="stored_files")
++    op.drop_table("stored_files")
++    op.drop_index("ix_users_telegram_id", table_name="users")
++    op.drop_table("users")
+diff --git a/bot/config.py b/bot/config.py
+new file mode 100644
+index 0000000..6eaf368
+--- /dev/null
++++ b/bot/config.py
+@@ -0,0 +1,38 @@
++from __future__ import annotations
++
++import json
++from functools import lru_cache
++from typing import List
++
++from pydantic import field_validator
++from pydantic_settings import BaseSettings, SettingsConfigDict
++
++
++class Settings(BaseSettings):
++    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
++
++    BOT_TOKEN: str
++    BOT_USERNAME: str = ""
++    ADMIN_IDS: List[int] = []
++    DATABASE_URL: str
++    REDIS_URL: str = "redis://redis:6379/0"
++    DEFAULT_LANGUAGE: str = "fa"
++
++    @field_validator("ADMIN_IDS", mode="before")
++    @classmethod
++    def parse_admin_ids(cls, v):
++        if isinstance(v, str):
++            try:
++                parsed = json.loads(v)
++                return [int(i) for i in parsed]
++            except (json.JSONDecodeError, ValueError):
++                return [int(i.strip()) for i in v.split(",") if i.strip()]
++        return v
++
++
++@lru_cache(maxsize=1)
++def get_settings() -> Settings:
++    return Settings()
++
++
++settings = get_settings()
+diff --git a/bot/database/__init__.py b/bot/database/__init__.py
+new file mode 100644
+index 0000000..34aadb7
+--- /dev/null
++++ b/bot/database/__init__.py
+@@ -0,0 +1,17 @@
++from .session import async_session_factory, engine, init_db
++from .models import Base, User, StoredFile, RequiredChannel, BotText, BotSetting, FileView, FileReport, Broadcast
++
++__all__ = [
++    "async_session_factory",
++    "engine",
++    "init_db",
++    "Base",
++    "User",
++    "StoredFile",
++    "RequiredChannel",
++    "BotText",
++    "BotSetting",
++    "FileView",
++    "FileReport",
++    "Broadcast",
++]
+diff --git a/bot/database/models.py b/bot/database/models.py
+new file mode 100644
+index 0000000..77c8203
+--- /dev/null
++++ b/bot/database/models.py
+@@ -0,0 +1,170 @@
++from __future__ import annotations
++
++import uuid
++from datetime import datetime
++from typing import Optional
++
++from sqlalchemy import (
++    BigInteger,
++    Boolean,
++    DateTime,
++    ForeignKey,
++    Integer,
++    String,
++    Text,
++    func,
++)
++from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
++
++
++class Base(DeclarativeBase):
++    pass
++
++
++class User(Base):
++    __tablename__ = "users"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
++    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
++    username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
++    first_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
++    language: Mapped[str] = mapped_column(String(10), nullable=False, default="fa")
++    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
++    is_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
++    )
++
++    files: Mapped[list[StoredFile]] = relationship("StoredFile", back_populates="owner", lazy="select")
++    views: Mapped[list[FileView]] = relationship("FileView", back_populates="user", lazy="select")
++    reports: Mapped[list[FileReport]] = relationship("FileReport", back_populates="user", lazy="select")
++
++    def __repr__(self) -> str:
++        return f"<User id={self.id} telegram_id={self.telegram_id}>"
++
++
++class StoredFile(Base):
++    __tablename__ = "stored_files"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
++    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True, default=lambda: uuid.uuid4().hex[:12])
++    owner_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
++    telegram_file_id: Mapped[str] = mapped_column(String(512), nullable=False)
++    telegram_file_unique_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
++    file_type: Mapped[str] = mapped_column(String(50), nullable=False)  # photo, video, document, audio, voice, etc.
++    caption: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
++    views_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
++    likes_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
++    reports_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
++    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
++    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
++    is_expired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
++    )
++
++    owner: Mapped[User] = relationship("User", back_populates="files")
++    views: Mapped[list[FileView]] = relationship("FileView", back_populates="file", lazy="select")
++    reports: Mapped[list[FileReport]] = relationship("FileReport", back_populates="file", lazy="select")
++
++    def __repr__(self) -> str:
++        return f"<StoredFile id={self.id} code={self.code} type={self.file_type}>"
++
++
++class RequiredChannel(Base):
++    __tablename__ = "required_channels"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
++    title: Mapped[str] = mapped_column(String(255), nullable=False)
++    chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
++    invite_link: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
++    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
++    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++
++    def __repr__(self) -> str:
++        return f"<RequiredChannel id={self.id} title={self.title}>"
++
++
++class BotText(Base):
++    __tablename__ = "bot_texts"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
++    key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
++    language: Mapped[str] = mapped_column(String(10), nullable=False, default="fa")
++    value: Mapped[str] = mapped_column(Text, nullable=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
++    )
++
++    def __repr__(self) -> str:
++        return f"<BotText key={self.key} lang={self.language}>"
++
++
++class BotSetting(Base):
++    __tablename__ = "bot_settings"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
++    key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
++    value: Mapped[str] = mapped_column(Text, nullable=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
++    )
++
++    def __repr__(self) -> str:
++        return f"<BotSetting key={self.key}>"
++
++
++class FileView(Base):
++    __tablename__ = "file_views"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
++    file_id: Mapped[int] = mapped_column(Integer, ForeignKey("stored_files.id", ondelete="CASCADE"), nullable=False)
++    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
++    viewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++
++    file: Mapped[StoredFile] = relationship("StoredFile", back_populates="views")
++    user: Mapped[Optional[User]] = relationship("User", back_populates="views")
++
++    def __repr__(self) -> str:
++        return f"<FileView file_id={self.file_id} user_id={self.user_id}>"
++
++
++class FileReport(Base):
++    __tablename__ = "file_reports"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
++    file_id: Mapped[int] = mapped_column(Integer, ForeignKey("stored_files.id", ondelete="CASCADE"), nullable=False)
++    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
++    reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++
++    file: Mapped[StoredFile] = relationship("StoredFile", back_populates="reports")
++    user: Mapped[User] = relationship("User", back_populates="reports")
++
++    def __repr__(self) -> str:
++        return f"<FileReport file_id={self.file_id} user_id={self.user_id}>"
++
++
++class Broadcast(Base):
++    __tablename__ = "broadcasts"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
++    message_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    telegram_message_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
++    total_users: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
++    sent_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
++    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
++    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")  # pending, running, done, failed
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
++    )
++
++    def __repr__(self) -> str:
++        return f"<Broadcast id={self.id} status={self.status}>"
+diff --git a/bot/database/session.py b/bot/database/session.py
+new file mode 100644
+index 0000000..82bdcc0
+--- /dev/null
++++ b/bot/database/session.py
+@@ -0,0 +1,23 @@
++from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
++
++from bot.config import settings
++
++engine = create_async_engine(
++    settings.DATABASE_URL,
++    echo=False,
++    pool_pre_ping=True,
++    pool_size=10,
++    max_overflow=20,
++)
++
++async_session_factory = async_sessionmaker(
++    bind=engine,
++    class_=AsyncSession,
++    expire_on_commit=False,
++)
++
++
++async def init_db() -> None:
++    from bot.database.models import Base
++    async with engine.begin() as conn:
++        await conn.run_sync(Base.metadata.create_all)
+diff --git a/bot/handlers/__init__.py b/bot/handlers/__init__.py
+new file mode 100644
+index 0000000..f586a2f
+--- /dev/null
++++ b/bot/handlers/__init__.py
+@@ -0,0 +1,8 @@
++from aiogram import Router
++
++from .start import router as start_router
++
++main_router = Router()
++main_router.include_router(start_router)
++
++__all__ = ["main_router"]
+diff --git a/bot/handlers/start.py b/bot/handlers/start.py
+new file mode 100644
+index 0000000..8c51e0c
+--- /dev/null
++++ b/bot/handlers/start.py
+@@ -0,0 +1,14 @@
++from aiogram import Router
++from aiogram.filters import CommandStart
++from aiogram.types import Message
++
++router = Router()
++
++
++@router.message(CommandStart())
++async def cmd_start(message: Message) -> None:
++    await message.answer(
++        "سلام! 👋\n"
++        "به ربات خوش آمدید.\n"
++        "این ربات در حال توسعه است."
++    )
+diff --git a/bot/keyboards/__init__.py b/bot/keyboards/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/bot/locales/en.json b/bot/locales/en.json
+new file mode 100644
+index 0000000..c43905d
+--- /dev/null
++++ b/bot/locales/en.json
+@@ -0,0 +1,4 @@
++{
++  "start": "Hello {name}! 👋\nWelcome to the bot.",
++  "error": "An error occurred. Please try again."
++}
+diff --git a/bot/locales/fa.json b/bot/locales/fa.json
+new file mode 100644
+index 0000000..30425d9
+--- /dev/null
++++ b/bot/locales/fa.json
+@@ -0,0 +1,4 @@
++{
++  "start": "سلام {name}! 👋\nبه ربات خوش آمدید.",
++  "error": "خطایی رخ داد. لطفاً دوباره تلاش کنید."
++}
+diff --git a/bot/main.py b/bot/main.py
+new file mode 100644
+index 0000000..22b8559
+--- /dev/null
++++ b/bot/main.py
+@@ -0,0 +1,49 @@
++import asyncio
++import logging
++import sys
++
++from aiogram import Bot, Dispatcher
++from aiogram.client.default import DefaultBotProperties
++from aiogram.enums import ParseMode
++
++from bot.config import settings
++from bot.database import init_db
++from bot.handlers import main_router
++
++logging.basicConfig(
++    level=logging.INFO,
++    stream=sys.stdout,
++    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
++)
++logger = logging.getLogger(__name__)
++
++
++async def on_startup(bot: Bot) -> None:
++    logger.info("Running database initialization...")
++    await init_db()
++    logger.info("Bot started.")
++
++
++async def on_shutdown(bot: Bot) -> None:
++    logger.info("Bot shutting down...")
++    await bot.session.close()
++
++
++async def main() -> None:
++    bot = Bot(
++        token=settings.BOT_TOKEN,
++        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
++    )
++
++    dp = Dispatcher()
++    dp.include_router(main_router)
++
++    dp.startup.register(on_startup)
++    dp.shutdown.register(on_shutdown)
++
++    logger.info("Starting long polling...")
++    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
++
++
++if __name__ == "__main__":
++    asyncio.run(main())
+diff --git a/bot/middlewares/__init__.py b/bot/middlewares/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/bot/services/__init__.py b/bot/services/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/docker-compose.yml b/docker-compose.yml
+new file mode 100644
+index 0000000..8e92158
+--- /dev/null
++++ b/docker-compose.yml
+@@ -0,0 +1,46 @@
++version: "3.9"
++
++services:
++  bot:
++    build: .
++    restart: unless-stopped
++    env_file: .env
++    depends_on:
++      postgres:
++        condition: service_healthy
++      redis:
++        condition: service_healthy
++    volumes:
++      - .:/app
++    command: >
++      sh -c "alembic upgrade head && python -m bot.main"
++
++  postgres:
++    image: postgres:16-alpine
++    restart: unless-stopped
++    environment:
++      POSTGRES_USER: ${POSTGRES_USER:-zed}
++      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zedpass}
++      POSTGRES_DB: ${POSTGRES_DB:-zed_uploader}
++    volumes:
++      - postgres_data:/var/lib/postgresql/data
++    healthcheck:
++      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-zed} -d ${POSTGRES_DB:-zed_uploader}"]
++      interval: 5s
++      timeout: 5s
++      retries: 10
++
++  redis:
++    image: redis:7-alpine
++    restart: unless-stopped
++    volumes:
++      - redis_data:/data
++    healthcheck:
++      test: ["CMD", "redis-cli", "ping"]
++      interval: 5s
++      timeout: 3s
++      retries: 10
++
++volumes:
++  postgres_data:
++  redis_data:
+diff --git a/requirements.txt b/requirements.txt
+new file mode 100644
+index 0000000..f9d23a8
+--- /dev/null
++++ b/requirements.txt
+@@ -0,0 +1,8 @@
++aiogram==3.13.1
++pydantic-settings==2.6.1
++sqlalchemy[asyncio]==2.0.36
++asyncpg==0.30.0
++alembic==1.14.0
++redis==5.2.0
++aioredis==2.0.1
++greenlet==3.1.1
+-- 
+2.43.0
+
