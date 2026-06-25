@@ -1,21 +1,24 @@
 from __future__ import annotations
 
-import math
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Router
 from aiogram.filters import Filter
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.database.models import FileReport, FileView, StoredFile, User
+from bot.database.models import FileReport, RequiredChannel, StoredFile, User
+from bot.handlers.admin_files import ask_for_user_id
 from bot.handlers.admin_settings import build_admin_settings_keyboard
+from bot.handlers.broadcast import start_forward_broadcast, start_text_broadcast
 from bot.keyboards.main_menu import admin_panel_keyboard, main_menu_keyboard
-from bot.services.file_service import get_all_files, get_file_by_id, soft_delete_file, toggle_file_active, is_file_expired
+from bot.services.forced_join_service import is_forced_join_enabled
 from bot.services.text_service import get_text, get_texts
-from bot.services.user_service import get_or_create_user
+from bot.services.user_service import get_or_create_user, get_user_by_telegram_id
+from bot.states import AdminUserStates
 
 router = Router()
 
@@ -24,17 +27,11 @@ _MENU_BTN_KEYS = [
     "btn_settings", "btn_change_language", "btn_support", "btn_admin_panel",
 ]
 _ADMIN_BTN_KEYS = [
-    "admin_btn_stats", "admin_btn_manage_texts",
-    "admin_btn_settings", "admin_btn_files", "admin_btn_back",
+    "admin_btn_stats", "admin_btn_users", "admin_btn_files",
+    "admin_btn_forced_join", "admin_btn_manage_texts", "admin_btn_settings",
+    "admin_btn_support", "admin_btn_broadcast", "admin_btn_fwd_broadcast",
+    "admin_btn_reports", "admin_btn_back",
 ]
-
-_FILES_PAGE_SIZE = 5
-_FILE_TYPE_ICONS = {
-    "photo": "🖼", "video": "🎬", "document": "📄", "audio": "🎵",
-    "voice": "🎤", "animation": "🎞", "sticker": "🎭",
-    "text": "📝", "contact": "👤", "location": "📍",
-}
-
 
 class AdminPanelFilter(Filter):
     async def __call__(self, message: Message, session: AsyncSession) -> bool:
@@ -60,7 +57,7 @@ async def admin_panel_entry(message: Message, session: AsyncSession) -> None:
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:"))
-async def admin_callback(call: CallbackQuery, session: AsyncSession) -> None:
+async def admin_callback(call: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     tg = call.from_user
     user, _ = await get_or_create_user(session, tg.id, tg.username, tg.first_name or "")
     if not user.is_admin:
@@ -76,6 +73,39 @@ async def admin_callback(call: CallbackQuery, session: AsyncSession) -> None:
 
     elif action == "stats_refresh":
         await _show_stats(call, session, lang, edit=True)
+
+    elif action == "users":
+        await state.set_state(AdminUserStates.waiting_for_user_id)
+        await call.message.answer(await get_text(session, "message_admin_users_ask", lang))
+
+    elif action == "support":
+        text = await get_text(session, "message_admin_settings", lang)
+        markup = await build_admin_settings_keyboard(session, lang)
+        await call.message.answer(text, reply_markup=markup)
+
+    elif action == "broadcast":
+        await start_text_broadcast(call.message, session, state, lang)
+
+    elif action == "fwd_broadcast":
+        await start_forward_broadcast(call.message, session, state, lang)
+
+    elif action == "reports":
+        await _show_reports(call, session, lang)
+
+    elif action == "ublock":
+        target = await get_user_by_telegram_id(session, int(parts[2]))
+        if target:
+            target.is_blocked = not target.is_blocked
+            await session.commit()
+            key = "message_admin_user_blocked" if target.is_blocked else "message_admin_user_unblocked"
+            await call.message.answer(await get_text(session, key, lang))
+
+    elif action == "rdel":
+        from bot.services.file_service import get_file_by_id, soft_delete_file
+        stored = await get_file_by_id(session, int(parts[2]))
+        if stored:
+            await soft_delete_file(session, stored)
+            await call.message.answer(await get_text(session, "message_admin_file_deleted", lang))
 
     elif action == "texts_menu":
         intro = await get_text(session, "message_admin_texts_intro", lang)
@@ -103,27 +133,7 @@ async def admin_callback(call: CallbackQuery, session: AsyncSession) -> None:
         await call.message.answer(text, reply_markup=markup)
 
     elif action == "files":
-        page = int(parts[2]) if len(parts) > 2 else 1
-        await _show_admin_files(call, session, lang, page)
-
-    elif action == "files_del":
-        file_id = int(parts[2])
-        stored = await get_file_by_id(session, file_id)
-        if stored:
-            await soft_delete_file(session, stored)
-            text = await get_text(session, "message_admin_file_deleted", lang)
-            await call.message.answer(text)
-
-    elif action == "files_tog":
-        file_id = int(parts[2])
-        stored = await get_file_by_id(session, file_id)
-        if stored:
-            now_deleted = await toggle_file_active(session, stored)
-            if now_deleted:
-                text = await get_text(session, "message_admin_file_toggled_off", lang)
-            else:
-                text = await get_text(session, "message_admin_file_toggled_on", lang)
-            await call.message.answer(text)
+        await ask_for_user_id(call.message, session, state, lang)
 
     elif action == "back":
         btn = await get_texts(session, _MENU_BTN_KEYS, lang)
@@ -156,7 +166,11 @@ async def _show_stats(call: CallbackQuery, session: AsyncSession, lang: str, edi
     active_files = total_files - deleted_files - expired_files
 
     total_views = (await session.execute(select(func.sum(StoredFile.views_count)))).scalar_one() or 0
+    total_likes = (await session.execute(select(func.sum(StoredFile.likes_count)))).scalar_one() or 0
     total_reports = (await session.execute(select(func.count()).select_from(FileReport))).scalar_one()
+    total_channels = (await session.execute(select(func.count()).select_from(RequiredChannel))).scalar_one()
+    fj_enabled = await is_forced_join_enabled(session)
+    fj_status = await get_text(session, "fj_status_on" if fj_enabled else "fj_status_off", lang)
 
     text = await get_text(
         session, "message_admin_stats", lang,
@@ -168,7 +182,10 @@ async def _show_stats(call: CallbackQuery, session: AsyncSession, lang: str, edi
         deleted_files=deleted_files,
         expired_files=expired_files,
         total_views=total_views,
+        total_likes=total_likes,
         total_reports=total_reports,
+        total_channels=total_channels,
+        forced_join=fj_status,
     )
 
     btn_refresh = await get_text(session, "btn_admin_stats_refresh", lang)
@@ -187,51 +204,79 @@ async def _show_stats(call: CallbackQuery, session: AsyncSession, lang: str, edi
         await call.message.answer(text, reply_markup=kb.as_markup())
 
 
-async def _show_admin_files(call: CallbackQuery, session: AsyncSession, lang: str, page: int) -> None:
-    files, total = await get_all_files(session, limit=_FILES_PAGE_SIZE, offset=(page - 1) * _FILES_PAGE_SIZE)
-    total_pages = max(1, math.ceil(total / _FILES_PAGE_SIZE))
-    page = min(page, total_pages)
-
-    if total == 0:
-        await call.message.answer("📁 No files found.")
+async def _show_reports(call: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    """Top reported, still-active files."""
+    result = await session.execute(
+        select(StoredFile)
+        .where(StoredFile.reports_count > 0, StoredFile.is_deleted == False)  # noqa: E712
+        .order_by(StoredFile.reports_count.desc())
+        .limit(10)
+    )
+    files = list(result.scalars().all())
+    if not files:
+        await call.message.answer(await get_text(session, "message_admin_reports_empty", lang))
         return
 
-    items_lines: list[str] = []
-    for i, f in enumerate(files, start=1 + (page - 1) * _FILES_PAGE_SIZE):
-        if is_file_expired(f):
-            status = "⏳"
-        elif f.is_deleted:
-            status = "🗑"
-        else:
-            status = "✅"
-        icon = _FILE_TYPE_ICONS.get(f.file_type, "📎")
-        owner_info = f"#{f.owner_id}"
-        line = f"#{i} <code>{f.code}</code> | {icon}{f.file_type} | 👁{f.views_count} | {status}\nOwner: {owner_info}"
-        items_lines.append(line)
-
-    text = await get_text(
-        session, "message_admin_files", lang,
-        page=page, total_pages=total_pages,
-        items="\n\n".join(items_lines),
-    )
-
+    lines = [
+        f"<code>{f.code}</code> | {f.file_type} | ⚠️{f.reports_count} | 👁{f.views_count}"
+        for f in files
+    ]
+    text = await get_text(session, "message_admin_reports", lang, items="\n".join(lines))
     kb = InlineKeyboardBuilder()
     for f in files:
-        kb.button(text="🗑", callback_data=f"admin:files_del:{f.id}")
-        kb.button(text="🔄", callback_data=f"admin:files_tog:{f.id}")
-        kb.adjust(2)
-
-    nav: list[tuple[str, str]] = []
-    if page > 1:
-        nav.append(("◀️", f"admin:files:{page - 1}"))
-    nav.append((f"{page}/{total_pages}", "admin:noop"))
-    if page < total_pages:
-        nav.append(("▶️", f"admin:files:{page + 1}"))
-    for lbl, cb in nav:
-        kb.button(text=lbl, callback_data=cb)
-
+        kb.button(text=f"🗑 {f.code}", callback_data=f"admin:rdel:{f.id}")
     back = await get_text(session, "btn_back", lang)
     kb.button(text=back, callback_data="admin:back")
-    kb.adjust(*([2] * len(files) + [len(nav)] + [1]))
-
+    kb.adjust(1)
     await call.message.answer(text, reply_markup=kb.as_markup())
+
+
+@router.message(AdminUserStates.waiting_for_user_id)
+async def receive_admin_user_id(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    tg = message.from_user
+    admin, _ = await get_or_create_user(session, tg.id, tg.username, tg.first_name or "")
+    if not admin.is_admin:
+        await state.clear()
+        return
+    lang = admin.language or "fa"
+    raw = (message.text or "").strip()
+    if raw == "/cancel":
+        await state.clear()
+        await message.answer(await get_text(session, "message_cancelled", lang))
+        return
+    try:
+        target_id = int(raw)
+    except ValueError:
+        await message.answer(await get_text(session, "message_admin_files_bad_id", lang))
+        return
+    await state.clear()
+
+    target = await get_user_by_telegram_id(session, target_id)
+    if target is None:
+        await message.answer(await get_text(session, "message_admin_user_not_found", lang))
+        return
+
+    file_count = (await session.execute(
+        select(func.count()).select_from(StoredFile).where(StoredFile.owner_id == target.id)
+    )).scalar_one()
+    block_status = await get_text(
+        session, "user_blocked" if target.is_blocked else "user_active", lang
+    )
+    text = await get_text(
+        session, "message_admin_user_info", lang,
+        telegram_id=target.telegram_id,
+        username=target.username or "—",
+        first_name=target.first_name or "—",
+        file_count=file_count,
+        created_at=target.created_at.strftime("%Y-%m-%d") if target.created_at else "—",
+        status=block_status,
+    )
+    kb = InlineKeyboardBuilder()
+    toggle_key = "btn_admin_unblock" if target.is_blocked else "btn_admin_block"
+    kb.button(text=await get_text(session, toggle_key, lang), callback_data=f"admin:ublock:{target.telegram_id}")
+    kb.button(text=await get_text(session, "btn_admin_view_user_files", lang), callback_data=f"afm:cat:{target.telegram_id}:all:1")
+    kb.button(text=await get_text(session, "btn_back", lang), callback_data="admin:back")
+    kb.adjust(1)
+    await message.answer(text, reply_markup=kb.as_markup())
+
+

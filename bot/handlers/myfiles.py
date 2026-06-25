@@ -4,6 +4,7 @@ import math
 
 from aiogram import Router
 from aiogram.filters import Filter
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,11 +15,17 @@ from bot.services.file_service import (
     get_file_by_id,
     get_user_files,
     is_file_expired,
+    regenerate_code,
+    remove_file_expiration,
+    remove_file_password,
+    set_file_expiration,
+    set_file_password,
     soft_delete_file,
     toggle_file_active,
 )
 from bot.services.text_service import get_text, get_texts
 from bot.services.user_service import get_or_create_user
+from bot.states import MyFilesStates
 
 router = Router()
 
@@ -61,7 +68,9 @@ async def show_my_files(message: Message, session: AsyncSession, db_user, bot_us
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("myf:"))
-async def myfiles_callback(call: CallbackQuery, session: AsyncSession, bot_username: str = "") -> None:
+async def myfiles_callback(
+    call: CallbackQuery, session: AsyncSession, state: FSMContext, bot_username: str = "",
+) -> None:
     tg = call.from_user
     user, _ = await get_or_create_user(session, tg.id, tg.username, tg.first_name or "")
     lang = user.language or "fa"
@@ -136,6 +145,50 @@ async def myfiles_callback(call: CallbackQuery, session: AsyncSession, bot_usern
             await call.message.answer(text)
         await call.answer()
 
+    elif action == "rg":
+        file_id = int(parts[2])
+        stored = await get_file_by_id(session, file_id)
+        if stored and stored.owner_id == user.id:
+            new_code = await regenerate_code(session, stored)
+            link = build_deep_link(new_code, bot_username)
+            text = await get_text(session, "message_file_regenerated", lang, link=link)
+            await call.message.answer(text)
+        await call.answer()
+
+    elif action == "pw":
+        file_id = int(parts[2])
+        stored = await get_file_by_id(session, file_id)
+        if stored and stored.owner_id == user.id:
+            await state.set_state(MyFilesStates.waiting_for_password)
+            await state.update_data(file_id=file_id)
+            await call.message.answer(await get_text(session, "message_myfiles_ask_password", lang))
+        await call.answer()
+
+    elif action == "rmpw":
+        file_id = int(parts[2])
+        stored = await get_file_by_id(session, file_id)
+        if stored and stored.owner_id == user.id:
+            await remove_file_password(session, stored)
+            await call.message.answer(await get_text(session, "message_password_removed", lang))
+        await call.answer()
+
+    elif action == "exp":
+        file_id = int(parts[2])
+        stored = await get_file_by_id(session, file_id)
+        if stored and stored.owner_id == user.id:
+            await state.set_state(MyFilesStates.waiting_for_expiration)
+            await state.update_data(file_id=file_id)
+            await call.message.answer(await get_text(session, "message_myfiles_ask_expiration", lang))
+        await call.answer()
+
+    elif action == "rmexp":
+        file_id = int(parts[2])
+        stored = await get_file_by_id(session, file_id)
+        if stored and stored.owner_id == user.id:
+            await remove_file_expiration(session, stored)
+            await call.message.answer(await get_text(session, "message_expiration_removed", lang))
+        await call.answer()
+
     elif action == "back":
         btn = await get_texts(session, _MENU_BTN_KEYS, lang)
         menu_text = await get_text(session, "message_main_menu", lang)
@@ -190,6 +243,10 @@ async def _render_files_page(
     btn_stats = await get_text(session, "btn_file_stats", lang)
     btn_del = await get_text(session, "btn_file_delete", lang)
     btn_tog = await get_text(session, "btn_file_toggle", lang)
+    btn_regen = await get_text(session, "btn_file_regenerate", lang)
+    btn_pw = await get_text(session, "btn_file_password", lang)
+    btn_exp = await get_text(session, "btn_file_set_expiration", lang)
+    btn_rmexp = await get_text(session, "btn_file_remove_expiration", lang)
     btn_prev = await get_text(session, "btn_prev_page", lang)
     btn_next = await get_text(session, "btn_next_page", lang)
     btn_back = await get_text(session, "btn_back", lang)
@@ -197,10 +254,13 @@ async def _render_files_page(
     for f in files:
         fid = f.id
         kb.button(text=btn_link, callback_data=f"myf:l:{fid}")
+        kb.button(text=btn_regen, callback_data=f"myf:rg:{fid}")
         kb.button(text=btn_stats, callback_data=f"myf:s:{fid}")
         kb.button(text=btn_del, callback_data=f"myf:d:{fid}")
         kb.button(text=btn_tog, callback_data=f"myf:t:{fid}")
-        kb.adjust(4)
+        kb.button(text=btn_pw, callback_data=f"myf:pw:{fid}")
+        kb.button(text=btn_exp, callback_data=f"myf:exp:{fid}")
+        kb.button(text=btn_rmexp, callback_data=f"myf:rmexp:{fid}")
 
     nav_row: list[tuple[str, str]] = []
     if page > 1:
@@ -210,10 +270,9 @@ async def _render_files_page(
         nav_row.append((btn_next, f"myf:p:{page + 1}"))
     for label, cb in nav_row:
         kb.button(text=label, callback_data=cb)
-    kb.adjust(*([4] * len(files) + [len(nav_row)]))
 
     kb.button(text=btn_back, callback_data="myf:back")
-    kb.adjust(*([4] * len(files) + [len(nav_row)] + [1]))
+    kb.adjust(*([4, 4] * len(files) + [len(nav_row)] + [1]))
 
     markup = kb.as_markup()
 
@@ -225,6 +284,44 @@ async def _render_files_page(
     else:
         msg = target if isinstance(target, Message) else target.message
         await msg.answer(header, reply_markup=markup)
+
+
+@router.message(MyFilesStates.waiting_for_password)
+async def receive_myfiles_password(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    tg = message.from_user
+    user, _ = await get_or_create_user(session, tg.id, tg.username, tg.first_name or "")
+    lang = user.language or "fa"
+    data = await state.get_data()
+    await state.clear()
+    stored = await get_file_by_id(session, data.get("file_id", 0))
+    if stored is None or stored.owner_id != user.id:
+        return
+    pw = (message.text or "").strip()
+    if pw == "/remove":
+        await remove_file_password(session, stored)
+        await message.answer(await get_text(session, "message_password_removed", lang))
+    else:
+        await set_file_password(session, stored, pw)
+        await message.answer(await get_text(session, "message_password_set", lang))
+
+
+@router.message(MyFilesStates.waiting_for_expiration)
+async def receive_myfiles_expiration(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    tg = message.from_user
+    user, _ = await get_or_create_user(session, tg.id, tg.username, tg.first_name or "")
+    lang = user.language or "fa"
+    data = await state.get_data()
+    await state.clear()
+    stored = await get_file_by_id(session, data.get("file_id", 0))
+    if stored is None or stored.owner_id != user.id:
+        return
+    try:
+        seconds = int((message.text or "").strip())
+    except ValueError:
+        await message.answer(await get_text(session, "message_settings_invalid_number", lang))
+        return
+    await set_file_expiration(session, stored, seconds if seconds > 0 else None)
+    await message.answer(await get_text(session, "message_expiration_set", lang))
 
 
 def _file_status_label(stored, lang: str) -> str:

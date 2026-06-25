@@ -6,7 +6,7 @@ from aiogram.types import Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.services.setting_service import get_setting
+from bot.services.support_service import get_support_info
 from bot.services.text_service import get_text
 from bot.services.user_service import get_or_create_user
 
@@ -29,16 +29,18 @@ class SupportButtonFilter(Filter):
 @router.message(SupportButtonFilter())
 async def show_support(message: Message, session: AsyncSession, db_user) -> None:
     lang = db_user.language or "fa"
+    info = await get_support_info(session)
 
-    support_text = await get_setting(session, "support_text") or await get_text(session, "default_support_text", lang)
-    support_url = await get_setting(session, "support_url")
-    support_btn_text = await get_setting(session, "support_btn_text") or await get_text(session, "btn_support_contact", lang)
+    body = info["text"] or await get_text(session, "default_support_text", lang)
+    if info["username"]:
+        body = f"{body}\n\n@{info['username']}"
 
-    text = await get_text(session, "message_support", lang, support_text=support_text)
+    text = await get_text(session, "message_support", lang, support_text=body)
 
-    if support_url:
+    if info["url"]:
         kb = InlineKeyboardBuilder()
-        kb.button(text=support_btn_text, url=support_url)
+        btn_label = info["button_text"] or await get_text(session, "btn_support_contact", lang)
+        kb.button(text=btn_label, url=info["url"])
         await message.answer(text, reply_markup=kb.as_markup())
     else:
         await message.answer(text)

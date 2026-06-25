@@ -19,3 +19,33 @@ class AdminTextStates(StatesGroup):
 
 class AdminSettingsStates(StatesGroup):
     entering_value = State()
+
+
+class PasswordStates(StatesGroup):
+    waiting_for_password = State()      # viewer entering password to open a file
+    waiting_for_new_password = State()  # owner/admin setting a file password
+
+
+class ForcedJoinStates(StatesGroup):
+    waiting_for_invite_link = State()
+    waiting_for_chat_id = State()
+
+
+class AdminFileStates(StatesGroup):
+    waiting_for_user_id = State()
+    waiting_for_expiration = State()
+    waiting_for_password = State()
+
+
+class BroadcastStates(StatesGroup):
+    waiting_for_message = State()
+    waiting_for_forward = State()
+
+
+class MyFilesStates(StatesGroup):
+    waiting_for_password = State()
+    waiting_for_expiration = State()
+
+
+class AdminUserStates(StatesGroup):
+    waiting_for_user_id = State()

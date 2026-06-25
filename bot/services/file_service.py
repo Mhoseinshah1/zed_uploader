@@ -5,11 +5,14 @@ import string
 from datetime import datetime, timezone
 from typing import Optional
 
+from datetime import timedelta
+
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings
-from bot.database.models import StoredFile, User
+from bot.database.models import FileReport, StoredFile, User
+from bot.services.password_service import hash_password, verify_password
 
 _CODE_ALPHABET = string.ascii_letters + string.digits
 _CODE_PREFIX = "F_"
@@ -153,3 +156,109 @@ async def toggle_file_active(session: AsyncSession, stored: StoredFile) -> bool:
 def get_bot_username(bot_username_override: str = "") -> str:
     username = bot_username_override or settings.BOT_USERNAME
     return username.lstrip("@")
+
+
+async def regenerate_code(session: AsyncSession, stored: StoredFile) -> str:
+    """Assign a fresh unique code. The OLD code stops working immediately."""
+    for _ in range(5):
+        code = generate_unique_code()
+        existing = await session.execute(select(StoredFile).where(StoredFile.code == code))
+        if existing.scalar_one_or_none() is None:
+            break
+    else:
+        raise RuntimeError("Failed to generate a unique file code after 5 attempts")
+    stored.code = code
+    await session.commit()
+    await session.refresh(stored)
+    return code
+
+
+async def set_file_password(session: AsyncSession, stored: StoredFile, password: str) -> None:
+    stored.password_hash = hash_password(password)
+    await session.commit()
+
+
+async def remove_file_password(session: AsyncSession, stored: StoredFile) -> None:
+    stored.password_hash = None
+    await session.commit()
+
+
+def check_file_password(stored: StoredFile, password: str) -> bool:
+    if not stored.password_hash:
+        return True
+    return verify_password(password, stored.password_hash)
+
+
+async def set_file_expiration(session: AsyncSession, stored: StoredFile, seconds: Optional[int]) -> None:
+    """Set expiration N seconds from now, or clear it when seconds is falsy."""
+    if seconds and seconds > 0:
+        stored.expires_at = datetime.now(tz=timezone.utc) + timedelta(seconds=seconds)
+        stored.is_expired = False
+    else:
+        stored.expires_at = None
+        stored.is_expired = False
+    await session.commit()
+
+
+async def remove_file_expiration(session: AsyncSession, stored: StoredFile) -> None:
+    stored.expires_at = None
+    stored.is_expired = False
+    await session.commit()
+
+
+async def mark_expired(session: AsyncSession, stored: StoredFile) -> None:
+    if not stored.is_expired:
+        stored.is_expired = True
+        await session.commit()
+
+
+async def add_report(session: AsyncSession, stored: StoredFile, user: User, reason: str = "") -> int:
+    """Record a report (one per user per file) and return the new reports_count."""
+    existing = await session.execute(
+        select(FileReport).where(FileReport.file_id == stored.id, FileReport.user_id == user.id)
+    )
+    if existing.scalar_one_or_none() is None:
+        session.add(FileReport(file_id=stored.id, user_id=user.id, reason=reason[:500] or None))
+        await session.execute(
+            update(StoredFile).where(StoredFile.id == stored.id)
+            .values(reports_count=StoredFile.reports_count + 1)
+        )
+        await session.commit()
+        await session.refresh(stored)
+    return stored.reports_count
+
+
+async def add_like(session: AsyncSession, stored: StoredFile) -> int:
+    await session.execute(
+        update(StoredFile).where(StoredFile.id == stored.id)
+        .values(likes_count=StoredFile.likes_count + 1)
+    )
+    await session.commit()
+    await session.refresh(stored)
+    return stored.likes_count
+
+
+async def get_files_by_owner_telegram_id(
+    session: AsyncSession,
+    telegram_id: int,
+    category: str = "all",
+    limit: int = 5,
+    offset: int = 0,
+) -> tuple[list[StoredFile], int]:
+    """Admin file lookup by the owner's numeric Telegram ID, filtered by category."""
+    q = (
+        select(StoredFile)
+        .join(User, StoredFile.owner_id == User.id)
+        .where(User.telegram_id == telegram_id)
+    )
+    if category == "active":
+        q = q.where(StoredFile.is_deleted == False, StoredFile.is_expired == False)  # noqa: E712
+    elif category == "deleted":
+        q = q.where(StoredFile.is_deleted == True)  # noqa: E712
+    elif category == "expired":
+        q = q.where(StoredFile.is_expired == True)  # noqa: E712
+    total = (await session.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+    rows = await session.execute(
+        q.order_by(StoredFile.created_at.desc()).limit(limit).offset(offset)
+    )
+    return list(rows.scalars().all()), total

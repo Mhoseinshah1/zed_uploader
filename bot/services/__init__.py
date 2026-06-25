@@ -13,9 +13,21 @@ from .file_service import (
     is_file_expired,
     build_deep_link,
     get_bot_username,
+    regenerate_code,
+    set_file_password,
+    remove_file_password,
+    check_file_password,
+    set_file_expiration,
+    remove_file_expiration,
+    mark_expired,
+    add_report,
+    add_like,
+    get_files_by_owner_telegram_id,
 )
 from .resend_service import resend_stored_file
 from .setting_service import get_setting, set_setting
+from .password_service import hash_password, verify_password
+from .delivery_service import deliver_file, schedule_auto_delete
 
 __all__ = [
     "get_or_create_user",
@@ -39,4 +51,18 @@ __all__ = [
     "resend_stored_file",
     "get_setting",
     "set_setting",
+    "regenerate_code",
+    "set_file_password",
+    "remove_file_password",
+    "check_file_password",
+    "set_file_expiration",
+    "remove_file_expiration",
+    "mark_expired",
+    "add_report",
+    "add_like",
+    "get_files_by_owner_telegram_id",
+    "hash_password",
+    "verify_password",
+    "deliver_file",
+    "schedule_auto_delete",
 ]

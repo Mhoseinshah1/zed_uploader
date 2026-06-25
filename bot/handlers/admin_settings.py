@@ -15,11 +15,13 @@ router = Router()
 
 # (callback_suffix, title_key, setting_key)
 _SETTINGS = [
+    ("support_user",   "btn_admin_setting_support_user",  "support_username"),
     ("support_text",   "btn_admin_setting_support_text",  "support_text"),
     ("support_url",    "btn_admin_setting_support_url",   "support_url"),
-    ("support_btn",    "btn_admin_setting_support_btn",   "support_btn_text"),
+    ("support_btn",    "btn_admin_setting_support_btn",   "support_button_text"),
     ("default_exp",    "btn_admin_setting_default_exp",   "global_expiration_seconds"),
     ("auto_del",       "btn_admin_setting_auto_del",      "global_auto_delete_seconds"),
+    ("max_reports",    "btn_admin_setting_max_reports",   "max_reports"),
 ]
 
 

@@ -5,6 +5,9 @@ from .language import router as language_router
 from .admin import router as admin_router
 from .admin_texts import router as admin_texts_router
 from .admin_settings import router as admin_settings_router
+from .admin_forced_join import router as admin_forced_join_router
+from .admin_files import router as admin_files_router
+from .broadcast import router as broadcast_router
 from .upload import router as upload_router
 from .myfiles import router as myfiles_router
 from .settings_handler import router as settings_router
@@ -17,6 +20,9 @@ main_router.include_router(language_router)
 main_router.include_router(admin_router)
 main_router.include_router(admin_texts_router)
 main_router.include_router(admin_settings_router)
+main_router.include_router(admin_forced_join_router)
+main_router.include_router(admin_files_router)
+main_router.include_router(broadcast_router)
 main_router.include_router(upload_router)
 main_router.include_router(myfiles_router)
 main_router.include_router(settings_router)
