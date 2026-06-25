@@ -136,7 +136,12 @@ async def receive_file(
         if global_adl.isdigit() and int(global_adl) > 0:
             auto_delete = int(global_adl)
 
-    stored = await _extract_and_store(message, session, user, lang, exp_seconds, auto_delete)
+    # Resolve signature: user's own > admin global signature > none
+    signature = (user.signature or "").strip()
+    if not signature:
+        signature = (await get_setting(session, "global_signature", "")).strip()
+
+    stored = await _extract_and_store(message, session, user, lang, exp_seconds, auto_delete, signature)
 
     # Always clear FSM state and restore menu, regardless of success or unsupported type
     await state.clear()
@@ -160,6 +165,15 @@ async def receive_file(
     await message.answer(menu_text, reply_markup=main_menu_keyboard(btn, user))
 
 
+def _with_signature(caption: str | None, signature: str) -> str | None:
+    """Append the signature on its own line, without downloading anything."""
+    if not signature:
+        return caption
+    if caption:
+        return f"{caption}\n\n{signature}"
+    return signature
+
+
 async def _extract_and_store(
     message: Message,
     session: AsyncSession,
@@ -167,6 +181,7 @@ async def _extract_and_store(
     lang: str,
     expiration_seconds: int | None = None,
     auto_delete_seconds: int | None = None,
+    signature: str = "",
 ):
     """Extract metadata from message and persist to StoredFile. Returns None on unsupported type.
 
@@ -179,6 +194,7 @@ async def _extract_and_store(
         else None
     )
     _extra = dict(expires_at=expires_at, auto_delete_seconds=auto_delete_seconds)
+    cap = _with_signature(message.caption, signature)
 
     # ── animation (GIF) — must come before document ────────────────────────────
     if message.animation:
@@ -188,7 +204,7 @@ async def _extract_and_store(
             file_type="animation",
             telegram_file_id=an.file_id,
             telegram_file_unique_id=an.file_unique_id,
-            caption=message.caption,
+            caption=cap,
             original_file_name=an.file_name,
             file_size=an.file_size,
             mime_type=an.mime_type,
@@ -203,7 +219,7 @@ async def _extract_and_store(
             file_type="photo",
             telegram_file_id=largest.file_id,
             telegram_file_unique_id=largest.file_unique_id,
-            caption=message.caption,
+            caption=cap,
             file_size=largest.file_size,
             **_extra,
         )
@@ -216,7 +232,7 @@ async def _extract_and_store(
             file_type="video",
             telegram_file_id=v.file_id,
             telegram_file_unique_id=v.file_unique_id,
-            caption=message.caption,
+            caption=cap,
             original_file_name=v.file_name,
             file_size=v.file_size,
             mime_type=v.mime_type,
@@ -231,7 +247,7 @@ async def _extract_and_store(
             file_type="document",
             telegram_file_id=d.file_id,
             telegram_file_unique_id=d.file_unique_id,
-            caption=message.caption,
+            caption=cap,
             original_file_name=d.file_name,
             file_size=d.file_size,
             mime_type=d.mime_type,
@@ -246,7 +262,7 @@ async def _extract_and_store(
             file_type="audio",
             telegram_file_id=a.file_id,
             telegram_file_unique_id=a.file_unique_id,
-            caption=message.caption,
+            caption=cap,
             original_file_name=a.file_name,
             file_size=a.file_size,
             mime_type=a.mime_type,

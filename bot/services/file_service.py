@@ -228,6 +228,23 @@ async def add_report(session: AsyncSession, stored: StoredFile, user: User, reas
     return stored.reports_count
 
 
+async def toggle_public(session: AsyncSession, stored: StoredFile) -> bool:
+    """Flip public/private. Returns the new is_public value."""
+    stored.is_public = not stored.is_public
+    await session.commit()
+    return stored.is_public
+
+
+async def set_fake_views(session: AsyncSession, stored: StoredFile, amount: int) -> None:
+    stored.fake_views = max(0, amount)
+    await session.commit()
+
+
+def display_views(stored: StoredFile) -> int:
+    """Views shown publicly = real views + admin-configured fake views."""
+    return stored.views_count + (stored.fake_views or 0)
+
+
 async def add_like(session: AsyncSession, stored: StoredFile) -> int:
     await session.execute(
         update(StoredFile).where(StoredFile.id == stored.id)

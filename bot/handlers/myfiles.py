@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.keyboards.main_menu import main_menu_keyboard
 from bot.services.file_service import (
     build_deep_link,
+    display_views,
     get_file_by_id,
     get_user_files,
     is_file_expired,
@@ -22,7 +23,9 @@ from bot.services.file_service import (
     set_file_password,
     soft_delete_file,
     toggle_file_active,
+    toggle_public,
 )
+from bot.services.folder_service import list_folders, move_file_to_folder
 from bot.services.text_service import get_text, get_texts
 from bot.services.user_service import get_or_create_user
 from bot.states import MyFilesStates
@@ -101,7 +104,7 @@ async def myfiles_callback(
                 session, "message_file_stats", lang,
                 code=stored.code,
                 type=_FILE_TYPE_ICONS.get(stored.file_type, "📎") + " " + stored.file_type,
-                views=stored.views_count,
+                views=display_views(stored),
                 likes=stored.likes_count,
                 reports=stored.reports_count,
                 created_at=stored.created_at.strftime("%Y-%m-%d %H:%M") if stored.created_at else "—",
@@ -189,6 +192,31 @@ async def myfiles_callback(
             await call.message.answer(await get_text(session, "message_expiration_removed", lang))
         await call.answer()
 
+    elif action == "pub":
+        file_id = int(parts[2])
+        stored = await get_file_by_id(session, file_id)
+        if stored and stored.owner_id == user.id:
+            now_public = await toggle_public(session, stored)
+            key = "message_file_made_public" if now_public else "message_file_made_private"
+            await call.message.answer(await get_text(session, key, lang))
+        await call.answer()
+
+    elif action == "mv":
+        file_id = int(parts[2])
+        stored = await get_file_by_id(session, file_id)
+        if stored and stored.owner_id == user.id:
+            await _show_move_picker(call, session, user, file_id, lang)
+        await call.answer()
+
+    elif action == "mvto":
+        file_id = int(parts[2])
+        folder_id = int(parts[3])
+        stored = await get_file_by_id(session, file_id)
+        if stored and stored.owner_id == user.id:
+            await move_file_to_folder(session, stored, folder_id or None)
+            await call.message.answer(await get_text(session, "message_file_moved", lang))
+        await call.answer()
+
     elif action == "back":
         btn = await get_texts(session, _MENU_BTN_KEYS, lang)
         menu_text = await get_text(session, "message_main_menu", lang)
@@ -227,7 +255,7 @@ async def _render_files_page(
             type=icon + " " + f.file_type,
             code=f.code,
             created_at=f.created_at.strftime("%Y-%m-%d") if f.created_at else "—",
-            views=f.views_count,
+            views=display_views(f),
             status=status,
         )
         items_lines.append(line)
@@ -247,6 +275,10 @@ async def _render_files_page(
     btn_pw = await get_text(session, "btn_file_password", lang)
     btn_exp = await get_text(session, "btn_file_set_expiration", lang)
     btn_rmexp = await get_text(session, "btn_file_remove_expiration", lang)
+    btn_move = await get_text(session, "btn_file_move", lang)
+    btn_pub = await get_text(session, "btn_file_public", lang)
+    btn_priv = await get_text(session, "btn_file_private", lang)
+    btn_folders = await get_text(session, "btn_folders", lang)
     btn_prev = await get_text(session, "btn_prev_page", lang)
     btn_next = await get_text(session, "btn_next_page", lang)
     btn_back = await get_text(session, "btn_back", lang)
@@ -261,6 +293,8 @@ async def _render_files_page(
         kb.button(text=btn_pw, callback_data=f"myf:pw:{fid}")
         kb.button(text=btn_exp, callback_data=f"myf:exp:{fid}")
         kb.button(text=btn_rmexp, callback_data=f"myf:rmexp:{fid}")
+        kb.button(text=(btn_priv if f.is_public else btn_pub), callback_data=f"myf:pub:{fid}")
+        kb.button(text=btn_move, callback_data=f"myf:mv:{fid}")
 
     nav_row: list[tuple[str, str]] = []
     if page > 1:
@@ -271,8 +305,9 @@ async def _render_files_page(
     for label, cb in nav_row:
         kb.button(text=label, callback_data=cb)
 
+    kb.button(text=btn_folders, callback_data="fld:list")
     kb.button(text=btn_back, callback_data="myf:back")
-    kb.adjust(*([4, 4] * len(files) + [len(nav_row)] + [1]))
+    kb.adjust(*([4, 4, 2] * len(files) + [len(nav_row)] + [2]))
 
     markup = kb.as_markup()
 
@@ -322,6 +357,18 @@ async def receive_myfiles_expiration(message: Message, session: AsyncSession, st
         return
     await set_file_expiration(session, stored, seconds if seconds > 0 else None)
     await message.answer(await get_text(session, "message_expiration_set", lang))
+
+
+async def _show_move_picker(call, session, user, file_id: int, lang: str) -> None:
+    folders = await list_folders(session, user.id)
+    kb = InlineKeyboardBuilder()
+    root_label = await get_text(session, "btn_folder_root", lang)
+    kb.button(text=root_label, callback_data=f"myf:mvto:{file_id}:0")
+    for fld in folders:
+        kb.button(text=f"📂 {fld.name}", callback_data=f"myf:mvto:{file_id}:{fld.id}")
+    kb.adjust(1)
+    text = await get_text(session, "message_move_pick_folder", lang)
+    await call.message.answer(text, reply_markup=kb.as_markup())
 
 
 def _file_status_label(stored, lang: str) -> str:

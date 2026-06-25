@@ -60,6 +60,11 @@ async def deliver_file(
         await message.answer(await get_text(session, "message_file_deleted", lang))
         return "deleted"
 
+    # ── private files: only the owner or an admin may receive ──────────────────
+    if not stored.is_public and stored.owner_id != user.id and not user.is_admin:
+        await message.answer(await get_text(session, "message_file_private", lang))
+        return "private"
+
     if is_file_expired(stored):
         await mark_expired(session, stored)
         await message.answer(await get_text(session, "message_file_expired", lang))

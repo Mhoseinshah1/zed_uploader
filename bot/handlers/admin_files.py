@@ -10,16 +10,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.services.file_service import (
     build_deep_link,
+    display_views,
     get_file_by_id,
     get_files_by_owner_telegram_id,
     is_file_expired,
     regenerate_code,
     remove_file_expiration,
     remove_file_password,
+    set_fake_views,
     set_file_expiration,
     set_file_password,
     soft_delete_file,
     toggle_file_active,
+    toggle_public,
 )
 from bot.services.text_service import get_text
 from bot.services.user_service import get_or_create_user, get_user_by_telegram_id
@@ -124,7 +127,7 @@ async def admin_files_callback(
             await get_text(
                 session, "message_file_stats", lang,
                 code=stored.code, type=stored.file_type,
-                views=stored.views_count, likes=stored.likes_count,
+                views=display_views(stored), likes=stored.likes_count,
                 reports=stored.reports_count,
                 created_at=stored.created_at.strftime("%Y-%m-%d %H:%M") if stored.created_at else "—",
                 status=_status(stored, lang),
@@ -150,6 +153,14 @@ async def admin_files_callback(
         await state.set_state(AdminFileStates.waiting_for_password)
         await state.update_data(file_id=file_id)
         await call.message.answer(await get_text(session, "message_admin_ask_password", lang))
+    elif action == "pub":
+        now_public = await toggle_public(session, stored)
+        key = "message_file_made_public" if now_public else "message_file_made_private"
+        await call.message.answer(await get_text(session, key, lang))
+    elif action == "fv":
+        await state.set_state(AdminFileStates.waiting_for_fake_views)
+        await state.update_data(file_id=file_id)
+        await call.message.answer(await get_text(session, "message_admin_ask_fake_views", lang))
 
     await call.answer()
 
@@ -198,6 +209,28 @@ async def receive_password(message: Message, session: AsyncSession, state: FSMCo
         await message.answer(await get_text(session, "message_password_set", lang))
 
 
+@router.message(AdminFileStates.waiting_for_fake_views)
+async def receive_fake_views(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    tg = message.from_user
+    admin, _ = await get_or_create_user(session, tg.id, tg.username, tg.first_name or "")
+    if not admin.is_admin:
+        await state.clear()
+        return
+    lang = admin.language or "fa"
+    data = await state.get_data()
+    await state.clear()
+    stored = await get_file_by_id(session, data.get("file_id", 0))
+    if stored is None:
+        return
+    try:
+        amount = int((message.text or "").strip())
+    except ValueError:
+        await message.answer(await get_text(session, "message_settings_invalid_number", lang))
+        return
+    await set_fake_views(session, stored, amount)
+    await message.answer(await get_text(session, "message_admin_fake_views_set", lang))
+
+
 async def _show_files_page(
     call: CallbackQuery, session: AsyncSession, lang: str,
     telegram_id: int, cat: str, page: int, bot_username: str,
@@ -212,7 +245,7 @@ async def _show_files_page(
     lines = []
     for i, f in enumerate(files, start=1 + offset):
         lines.append(
-            f"#{i} <code>{f.code}</code> | {f.file_type} | 👁{f.views_count} | {_status(f, lang)}"
+            f"#{i} <code>{f.code}</code> | {f.file_type} | 👁{display_views(f)} | {_status(f, lang)}"
         )
     header = await get_text(
         session, "message_admin_files_list", lang,
@@ -231,7 +264,9 @@ async def _show_files_page(
         kb.button(text="⏳", callback_data=f"afm:exp:{f.id}:{suffix}")
         kb.button(text="🧹", callback_data=f"afm:rmexp:{f.id}:{suffix}")
         kb.button(text="🔐", callback_data=f"afm:pw:{f.id}:{suffix}")
-        adj.append(8)
+        kb.button(text="🌐" if f.is_public else "🔒", callback_data=f"afm:pub:{f.id}:{suffix}")
+        kb.button(text="👁±", callback_data=f"afm:fv:{f.id}:{suffix}")
+        adj.append(10)
 
     nav: list[tuple[str, str]] = []
     if page > 1:

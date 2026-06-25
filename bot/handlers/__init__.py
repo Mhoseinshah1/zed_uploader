@@ -10,6 +10,7 @@ from .admin_files import router as admin_files_router
 from .broadcast import router as broadcast_router
 from .upload import router as upload_router
 from .myfiles import router as myfiles_router
+from .folders import router as folders_router
 from .settings_handler import router as settings_router
 from .support_handler import router as support_router
 from .menu import router as menu_router
@@ -25,6 +26,7 @@ main_router.include_router(admin_files_router)
 main_router.include_router(broadcast_router)
 main_router.include_router(upload_router)
 main_router.include_router(myfiles_router)
+main_router.include_router(folders_router)
 main_router.include_router(settings_router)
 main_router.include_router(support_router)
 main_router.include_router(menu_router)

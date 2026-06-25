@@ -35,6 +35,7 @@ class AdminFileStates(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_expiration = State()
     waiting_for_password = State()
+    waiting_for_fake_views = State()
 
 
 class BroadcastStates(StatesGroup):
@@ -49,3 +50,8 @@ class MyFilesStates(StatesGroup):
 
 class AdminUserStates(StatesGroup):
     waiting_for_user_id = State()
+
+
+class FolderStates(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_rename = State()

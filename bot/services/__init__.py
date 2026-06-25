@@ -23,6 +23,9 @@ from .file_service import (
     add_report,
     add_like,
     get_files_by_owner_telegram_id,
+    toggle_public,
+    set_fake_views,
+    display_views,
 )
 from .resend_service import resend_stored_file
 from .setting_service import get_setting, set_setting
@@ -65,4 +68,7 @@ __all__ = [
     "verify_password",
     "deliver_file",
     "schedule_auto_delete",
+    "toggle_public",
+    "set_fake_views",
+    "display_views",
 ]
