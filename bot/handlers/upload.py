@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aiogram import Bot, Router
+from aiogram import Router
 from aiogram.filters import Filter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
@@ -35,9 +35,6 @@ _MENU_BTN_KEYS = [
     "btn_save_file", "btn_my_files", "btn_profile",
     "btn_settings", "btn_change_language", "btn_support", "btn_admin_panel",
 ]
-
-# Key used to cache bot username in bot.data dict (set at startup)
-BOT_USERNAME_KEY = "bot_username"
 
 
 # ── Filter: matches save-file button text ──────────────────────────────────────
@@ -111,7 +108,12 @@ async def cancel_save(message: Message, session: AsyncSession, state: FSMContext
 # ── Receive content while waiting ─────────────────────────────────────────────
 
 @router.message(UploadStates.waiting_for_file)
-async def receive_file(message: Message, session: AsyncSession, state: FSMContext, bot: Bot) -> None:
+async def receive_file(
+    message: Message,
+    session: AsyncSession,
+    state: FSMContext,
+    bot_username: str = "",
+) -> None:
     data = await state.get_data()
     lang = data.get("lang", "fa")
 
@@ -130,12 +132,6 @@ async def receive_file(message: Message, session: AsyncSession, state: FSMContex
         menu_text = await get_text(session, "message_main_menu", lang)
         await message.answer(menu_text, reply_markup=main_menu_keyboard(btn, user))
         return
-
-    # Resolve bot username from bot.data cache set at startup
-    bot_username: str = bot.data.get(BOT_USERNAME_KEY, "")
-    if not bot_username:
-        me = await bot.get_me()
-        bot_username = me.username or ""
 
     link = build_deep_link(stored.code, bot_username)
     success_text = await get_text(session, "message_file_saved_success", lang)
