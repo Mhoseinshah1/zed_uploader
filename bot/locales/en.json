@@ -1,0 +1,4 @@
+{
+  "start": "Hello {name}! 👋\nWelcome to the bot.",
+  "error": "An error occurred. Please try again."
+}
