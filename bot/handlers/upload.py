@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from aiogram import Router
 from aiogram.filters import Filter
 from aiogram.fsm.context import FSMContext
@@ -25,6 +27,7 @@ from bot.services.file_service import (
     build_deep_link,
     create_stored_file,
 )
+from bot.services.setting_service import get_setting
 from bot.services.text_service import get_text, get_texts
 from bot.services.user_service import get_or_create_user
 from bot.states import UploadStates
@@ -120,7 +123,20 @@ async def receive_file(
     tg = message.from_user
     user, _ = await get_or_create_user(session, tg.id, tg.username, tg.first_name or "")
 
-    stored = await _extract_and_store(message, session, user, lang)
+    # Resolve expiration: user preference > global setting > None
+    exp_seconds: int | None = user.default_expiration_seconds
+    if exp_seconds is None:
+        global_exp = await get_setting(session, "global_expiration_seconds", "")
+        if global_exp.isdigit() and int(global_exp) > 0:
+            exp_seconds = int(global_exp)
+
+    auto_delete: int | None = user.auto_delete_seconds
+    if auto_delete is None:
+        global_adl = await get_setting(session, "global_auto_delete_seconds", "")
+        if global_adl.isdigit() and int(global_adl) > 0:
+            auto_delete = int(global_adl)
+
+    stored = await _extract_and_store(message, session, user, lang, exp_seconds, auto_delete)
 
     # Always clear FSM state and restore menu, regardless of success or unsupported type
     await state.clear()
@@ -149,12 +165,20 @@ async def _extract_and_store(
     session: AsyncSession,
     user,
     lang: str,
+    expiration_seconds: int | None = None,
+    auto_delete_seconds: int | None = None,
 ):
     """Extract metadata from message and persist to StoredFile. Returns None on unsupported type.
 
     NOTE: animation MUST be checked before document — Telegram sets both fields
     on GIF messages, and the more specific type (animation) takes priority.
     """
+    expires_at = (
+        datetime.now(tz=timezone.utc) + timedelta(seconds=expiration_seconds)
+        if expiration_seconds
+        else None
+    )
+    _extra = dict(expires_at=expires_at, auto_delete_seconds=auto_delete_seconds)
 
     # ── animation (GIF) — must come before document ────────────────────────────
     if message.animation:
@@ -168,6 +192,7 @@ async def _extract_and_store(
             original_file_name=an.file_name,
             file_size=an.file_size,
             mime_type=an.mime_type,
+            **_extra,
         )
 
     # ── photo ──────────────────────────────────────────────────────────────────
@@ -180,6 +205,7 @@ async def _extract_and_store(
             telegram_file_unique_id=largest.file_unique_id,
             caption=message.caption,
             file_size=largest.file_size,
+            **_extra,
         )
 
     # ── video ──────────────────────────────────────────────────────────────────
@@ -194,6 +220,7 @@ async def _extract_and_store(
             original_file_name=v.file_name,
             file_size=v.file_size,
             mime_type=v.mime_type,
+            **_extra,
         )
 
     # ── document ───────────────────────────────────────────────────────────────
@@ -208,6 +235,7 @@ async def _extract_and_store(
             original_file_name=d.file_name,
             file_size=d.file_size,
             mime_type=d.mime_type,
+            **_extra,
         )
 
     # ── audio ──────────────────────────────────────────────────────────────────
@@ -222,6 +250,7 @@ async def _extract_and_store(
             original_file_name=a.file_name,
             file_size=a.file_size,
             mime_type=a.mime_type,
+            **_extra,
         )
 
     # ── voice ──────────────────────────────────────────────────────────────────
@@ -234,6 +263,7 @@ async def _extract_and_store(
             telegram_file_unique_id=vo.file_unique_id,
             file_size=vo.file_size,
             mime_type=vo.mime_type,
+            **_extra,
         )
 
     # ── sticker ────────────────────────────────────────────────────────────────
@@ -245,6 +275,7 @@ async def _extract_and_store(
             telegram_file_id=st.file_id,
             telegram_file_unique_id=st.file_unique_id,
             file_size=st.file_size,
+            **_extra,
         )
 
     # ── text ───────────────────────────────────────────────────────────────────
@@ -253,6 +284,7 @@ async def _extract_and_store(
             session, user,
             file_type="text",
             text_content=message.text,
+            **_extra,
         )
 
     # ── contact ────────────────────────────────────────────────────────────────
@@ -268,6 +300,7 @@ async def _extract_and_store(
                 "user_id": c.user_id,
                 "vcard": c.vcard,
             },
+            **_extra,
         )
 
     # ── location ───────────────────────────────────────────────────────────────
@@ -281,6 +314,7 @@ async def _extract_and_store(
                 "longitude": loc.longitude,
                 "horizontal_accuracy": loc.horizontal_accuracy,
             },
+            **_extra,
         )
 
     # ── unsupported ────────────────────────────────────────────────────────────

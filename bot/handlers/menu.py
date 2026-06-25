@@ -15,11 +15,10 @@ _MENU_BTN_KEYS = [
     "btn_settings", "btn_change_language", "btn_support", "btn_admin_panel",
 ]
 
-# save_file is handled by upload router; change_language by language router;
-# admin_panel by admin router — only these remain here.
+# save_file handled by upload router; my_files/settings/support by dedicated routers;
+# change_language by language router; admin_panel by admin router.
 _ACTION_KEYS = [
-    "btn_my_files", "btn_profile",
-    "btn_settings", "btn_support",
+    "btn_profile",
 ]
 
 
@@ -52,11 +51,7 @@ async def handle_menu_button(message: Message, session: AsyncSession) -> None:
     if matched_key is None:
         return
 
-    if matched_key == "btn_my_files":
-        text = await get_text(session, "message_my_files_empty", lang)
-        await message.answer(text)
-
-    elif matched_key == "btn_profile":
+    if matched_key == "btn_profile":
         created_str = user.created_at.strftime("%Y-%m-%d") if user.created_at else "—"
         lang_label = "فارسی" if lang == "fa" else "English"
         text = await get_text(
@@ -68,10 +63,3 @@ async def handle_menu_button(message: Message, session: AsyncSession) -> None:
         )
         await message.answer(text)
 
-    elif matched_key == "btn_settings":
-        text = await get_text(session, "message_settings", lang)
-        await message.answer(text)
-
-    elif matched_key == "btn_support":
-        text = await get_text(session, "message_support", lang)
-        await message.answer(text)

@@ -33,6 +33,9 @@ class User(Base):
     language: Mapped[str] = mapped_column(String(10), nullable=False, default="fa")
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    signature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    default_expiration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    auto_delete_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -66,6 +69,7 @@ class StoredFile(Base):
     likes_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     reports_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    auto_delete_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_expired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
