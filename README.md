@@ -6,6 +6,49 @@ A production-ready Telegram file saver/uploader bot built with Python 3.11+, aio
 
 ---
 
+## One-Command Install (Ubuntu 20.04 / 22.04 / 24.04)
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Mhoseinshah1/zed_uploader/main/install.sh)
+```
+
+The installer will:
+1. Install Docker and Docker Compose if not already present
+2. Clone the repository to `/opt/zed_uploader`
+3. Ask for your **Telegram bot token** and **admin user ID** (numeric)
+4. Auto-generate all database credentials and secrets
+5. Build Docker images and start all services
+6. Apply database migrations automatically on first run
+
+On reinstall it asks whether to reconfigure credentials or just update the code.
+
+---
+
+## Update
+
+```bash
+bash /opt/zed_uploader/update.sh
+```
+
+Or to update from a specific branch:
+
+```bash
+INSTALL_BRANCH=mybranch bash /opt/zed_uploader/update.sh
+```
+
+---
+
+## Uninstall
+
+```bash
+cd /opt/zed_uploader
+docker compose down -v        # stop containers and remove volumes
+cd /
+sudo rm -rf /opt/zed_uploader
+```
+
+---
+
 ## Tech Stack
 
 - Python 3.11+
@@ -20,41 +63,54 @@ A production-ready Telegram file saver/uploader bot built with Python 3.11+, aio
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and fill in the values:
+The installer auto-generates all variables. For manual setup:
 
 | Variable | Description | Example |
 |---|---|---|
 | `BOT_TOKEN` | Telegram bot token from @BotFather | `123456:ABC-DEF...` |
-| `BOT_USERNAME` | Bot username without @ | `mybot` |
+| `BOT_USERNAME` | Bot username without @ (optional, resolved via API if empty) | `mybot` |
 | `ADMIN_IDS` | JSON array of admin Telegram user IDs | `[123456789]` |
-| `DATABASE_URL` | Async PostgreSQL URL | `postgresql+asyncpg://zed:pass@postgres:5432/zed_uploader` |
-| `POSTGRES_USER` | PostgreSQL username | `zed` |
-| `POSTGRES_PASSWORD` | PostgreSQL password | `zedpass` |
+| `DATABASE_URL` | Async PostgreSQL URL | `postgresql+asyncpg://user:pass@postgres:5432/zed_uploader` |
+| `POSTGRES_USER` | PostgreSQL username | `zed_a1b2c3d4` |
+| `POSTGRES_PASSWORD` | PostgreSQL password | auto-generated |
 | `POSTGRES_DB` | PostgreSQL database name | `zed_uploader` |
 | `REDIS_URL` | Redis connection URL | `redis://redis:6379/0` |
 | `DEFAULT_LANGUAGE` | Default bot language (`fa` or `en`) | `fa` |
 
 ---
 
-## Run with Docker Compose (recommended)
+## Manual Docker Compose Setup
 
 ```bash
-# 1. Copy and fill environment variables
+# 1. Clone the repository
+git clone https://github.com/Mhoseinshah1/zed_uploader.git
+cd zed_uploader
+
+# 2. Create .env (see table above for required variables)
 cp .env.example .env
 # Edit .env with your values
 
-# 2. Build and start all services
+# 3. Build and start all services
 docker compose up -d --build
 
-# 3. Check logs
+# 4. Check logs
 docker compose logs -f bot
 ```
 
-This will:
-- Start PostgreSQL and Redis
-- Wait for them to be healthy
-- Run `alembic upgrade head` to apply migrations
-- Start the bot with long polling
+---
+
+## Useful Commands
+
+```bash
+cd /opt/zed_uploader
+
+docker compose ps                  # container status
+docker compose logs -f bot         # follow bot logs
+docker compose restart bot         # restart bot
+docker compose down                # stop everything
+docker compose up -d --build       # rebuild and start
+bash /opt/zed_uploader/update.sh   # update to latest version
+```
 
 ---
 
@@ -70,7 +126,6 @@ pip install -r requirements.txt
 
 # 3. Copy and fill environment variables
 cp .env.example .env
-# Edit .env — point DATABASE_URL to your local PostgreSQL
 
 # 4. Run migrations
 alembic upgrade head
@@ -87,18 +142,25 @@ python -m bot.main
 bot/
   main.py           — bot entry point, startup/shutdown hooks
   config.py         — settings loaded from environment variables
+  states.py         — FSM state groups
   database/
     models.py       — SQLAlchemy ORM models
     session.py      — async engine and session factory
   handlers/
-    start.py        — /start command handler
-  keyboards/        — inline and reply keyboards (future)
-  services/         — business logic layer (future)
-  middlewares/      — aiogram middlewares (future)
+    start.py        — /start command + deep link handler
+    upload.py       — FSM file save flow
+    language.py     — language selection
+    admin.py        — admin panel
+    menu.py         — main menu buttons
+  keyboards/        — reply and inline keyboards
+  services/         — business logic (user, file, text, resend)
+  middlewares/      — DB session injection middleware
   locales/          — fa.json / en.json message strings
 alembic/
   versions/         — migration files
   env.py            — async Alembic environment
+install.sh          — one-command Ubuntu installer
+update.sh           — update to latest version
 docker-compose.yml
 Dockerfile
 requirements.txt
@@ -118,15 +180,3 @@ alembic revision --autogenerate -m "description"
 # Rollback one step
 alembic downgrade -1
 ```
-
----
-
-## Upcoming Features
-
-- File upload/download via `file_id` (no server storage)
-- Forced channel join verification
-- Admin panel
-- Broadcast system
-- Per-user language selection
-- File password protection
-- File expiry and auto-deletion
